@@ -492,7 +492,7 @@ static void * maintask(void * args){
         prev_stmp = curr_stmp;
 
         /* yield control to other tasks in thread */
-        fibtask_sched();
+        fibtask_sched_yield();
     }
     
     /* decrease number of service threads in system */
@@ -580,16 +580,11 @@ static inline void fibtask_sched(){
     FibTCB * next_task = NULL, * the_task = current_task;
     while (true) {
         /* only get a task from local if possible */
-        if((local_readylist_size > 1) || (current_task != the_maintask))
-        { 
-            _CHAIN_FOREACH(next_task, &local_readylist, FibTCB){
-                if (next_task != current_task){
-                    break;
-                }
-            }
-
+        next_task = _CHAIN_FIRST(&local_readylist);
+        if (likely(next_task != the_task)){
             _CHAIN_REMOVE(next_task);
             --local_readylist_size;
+
             break;
         }
 
