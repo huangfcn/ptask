@@ -1,10 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include "sysdef.h"
-#include "spinlock.h"
-#include "chain.h"
-#include "task.h"
+#include "libfibtask.h"
 
 void * generator(void * args){
     for (int i = 0; i < 1000; ++i){

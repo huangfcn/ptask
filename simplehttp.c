@@ -14,9 +14,7 @@
 
 #include <assert.h>
 
-#include "sysdef.h"
-#include "chain.h"
-#include "task.h"
+#include "libfibtask.h"
 #include "epoll.h"
 
 static int create_and_bind(int port)
