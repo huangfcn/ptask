@@ -16,7 +16,6 @@
 
 #include "sysdef.h"
 #include "spinlock.h"
-
 #include "chain.h"
 #include "task.h"
 
@@ -84,6 +83,16 @@ void * requestHandler(void* args)
     if (s == -1)
         abort();
 
+    EventContext ctxs[MAXEVENTS] = {0};
+    EventContextControlBlock ctxcb = {
+        .maxEvents     = MAXEVENTS,
+        .usedEventMask = ~0ULL,
+        .tmpEventMasks =  0ULL,
+        .ctxs = ctxs
+    };
+    fibtask_set_localdata(fibtask_ident(), 0, (uint64_t)(&ctxcb));
+    epoll_install_callbacks(fibtask_ident());
+
     struct epoll_event events[MAXEVENTS];
     fibtask_register_events(infd, EPOLLIN | EPOLLET);
 
@@ -93,7 +102,7 @@ void * requestHandler(void* args)
     {
         int n, i;
 
-        n = fibtask_epoll_wait(events, MAXEVENTS, 2000);
+        n = fibtask_epoll_wait(events, MAXEVENTS, -1);
         for (i = 0; (i < n) && (!done); i++) {
 
             if ((events[i].events & EPOLLERR) ||
@@ -193,6 +202,16 @@ void* server(void* args)
         abort();
     }
 
+    EventContext ctxs[MAXEVENTS] = {0};
+    EventContextControlBlock ctxcb = {
+        .maxEvents     = MAXEVENTS,
+        .usedEventMask = ~0ULL,
+        .tmpEventMasks =  0ULL,
+        .ctxs = ctxs
+    };
+    fibtask_set_localdata(fibtask_ident(), 0, (uint64_t)(&ctxcb));
+    epoll_install_callbacks(fibtask_ident());
+
     fibtask_register_events(sfd, EPOLLIN | EPOLLET);
 
     /* Buffer where events are returned */
@@ -203,7 +222,7 @@ void* server(void* args)
     {
         int n, i;
 
-        n = fibtask_epoll_wait(events, MAXEVENTS, 1000);
+        n = fibtask_epoll_wait(events, MAXEVENTS, -1);
         for (i = 0; i < n; i++) {
 
             if ((events[i].events & EPOLLERR) ||
@@ -263,7 +282,7 @@ void* server(void* args)
 
 
 bool initializeTask(void* args) {
-    fibtask_create(server, args, NULL, 8192);
+    fibtask_create(server, args, NULL, 8192 * 2);
     return true;
 }
 
@@ -282,7 +301,7 @@ int main(int argc, char* argv[])
       .args = (void *)(portnum),
     };
 
-    thread_maintask(&args);
+    epoll_thread(&args);
 
     return 0;
 }

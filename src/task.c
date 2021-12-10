@@ -1,5 +1,4 @@
 #include <sys/mman.h>
-#include <sys/epoll.h>
 
 #include <assert.h>
 #include <stdio.h>
@@ -11,27 +10,8 @@
 #include "timestamp.h"
 #include "task.h"
 
-//////////////////////////////////
-/* assembly code in context.S   */
-//////////////////////////////////
-void swap_context(void *, void *);
-void save_context(void *        );
-void goto_context(void *        );
-void asm_taskmain(              );
-//////////////////////////////////
-
-static inline int fibtask_unregister_all_events(FibTCB * the_tcb);
-static inline int fibtask_reregister_all_events(FibTCB * the_tcb);
-static inline int fibtask_free_all_eventcontext(FibTCB * the_tcb);
-
-
 static inline int fibtask_watchdog_insert(FibTCB * the_tcb);
 static inline int fibtask_watchdog_remove(FibTCB * the_tcb);
-static inline int fibtask_watchdog_tickle(int gap);
-
-static inline int fibtask_wait(int timeout);
-static inline int fibtask_post(FibTCB * the_task);
-static inline void fibtask_sched();
 
 typedef struct freelist_t {
     struct freelist_t * next;
@@ -40,14 +20,12 @@ typedef struct freelist_t {
 typedef CHAIN_HEAD(fibtcb_chain, FibTCB) fibtcb_chain_t;
 
 /* thread cached lists */
-static __thread_local freelist_t *   local_eventlist = NULL;
 static __thread_local freelist_t *   local_freedlist = NULL;
 static __thread_local fibtcb_chain_t local_blocklist;
 static __thread_local fibtcb_chain_t local_readylist;
 
 static __thread_local fibtcb_chain_t local_wadoglist;
 
-static __thread_local int local_eventlist_size = 0;
 static __thread_local int local_freedlist_size = 0;
 static __thread_local int local_readylist_size = 0;
 
@@ -61,13 +39,11 @@ static __thread_local struct {
 static __thread_local uint32_t local_cached_stack_mask;
 
 /* global lists (need lock to access) */
-static volatile freelist_t *   global_eventlist;
 static volatile freelist_t *   global_freedlist;
 static volatile fibtcb_chain_t global_readylist;
 
 static spinlock spinlock_freedlist = {0};
 static spinlock spinlock_readylist = {0};
-static spinlock spinlock_eventlist = {0};
 
 static volatile int global_readylist_size = 0;
 
@@ -77,10 +53,6 @@ static volatile struct {
 } global_cached_stack[64];
 static volatile uint64_t global_cached_stack_mask;
 static spinlock spinlock_cached_stack;
-
-/* epoll specific data */
-static __thread_local int epoll_fd = 0;
-static __thread_local struct epoll_event epoll_events[MAX_EPOLL_EVENTS_PER_THREAD];
 
 static volatile int64_t mServiceThreads = 0, nFibTaskInSystem = 0;
 
@@ -123,13 +95,11 @@ static volatile int64_t mServiceThreads = 0, nFibTaskInSystem = 0;
 /* SYSTEM/THREAD level data initialization                             */
 /////////////////////////////////////////////////////////////////////////
 bool FibTaskGlobalStartup(){
-    global_eventlist = NULL;
     global_freedlist = NULL;
     _CHAIN_INIT_EMPTY(&global_readylist);
 
     spin_init(&spinlock_freedlist);
     spin_init(&spinlock_readylist);
-    spin_init(&spinlock_eventlist);
 
     global_readylist_size = 0;
     mServiceThreads  = 0;
@@ -142,7 +112,6 @@ bool FibTaskGlobalStartup(){
 };
 
 bool FibTaskThreadStartup(){
-    local_eventlist = NULL;
     local_freedlist = NULL;
 
     _CHAIN_INIT_EMPTY(&local_blocklist);
@@ -151,13 +120,10 @@ bool FibTaskThreadStartup(){
    /* watch dog list */
     CHAIN_INIT_EMPTY(&local_wadoglist, FibTCB, link);
 
-    local_eventlist_size = 0;
     local_freedlist_size = 0;
     local_readylist_size = 0;
 
     local_cached_stack_mask = 0xFF;
-
-    epoll_fd = epoll_create1(EPOLL_CLOEXEC);
     return true;
 };
 /////////////////////////////////////////////////////////////////////////
@@ -208,56 +174,6 @@ static inline FibTCB * tcb_alloc(){
             tcb_free(tcbs + i);
         }
         return (tcbs);
-    }
-};
-/////////////////////////////////////////////////////////////////////////
-
-/////////////////////////////////////////////////////////////////////////
-/* EVENT CONTEXT alloc/free                                            */
-/////////////////////////////////////////////////////////////////////////
-static inline void evtctx_free(EventContext * ctx){
-    freelist_t * node = (freelist_t *)ctx;
-    if (likely(local_eventlist_size < MAX_LOCAL_FREED_TASKS)){
-        node->next = local_eventlist;
-        local_eventlist = node;
-        ++local_eventlist_size;
-    }
-    else{
-        spin_lock(&spinlock_eventlist);
-        node->next = (freelist_t *)global_eventlist;
-        global_eventlist = node;
-        spin_unlock(&spinlock_eventlist);
-    }
-};
-
-static inline EventContext * evtctx_alloc(){
-    if (likely(local_eventlist != NULL)){
-        EventContext * ctx = (EventContext *)local_eventlist;
-        local_eventlist = local_eventlist->next;
-
-        --local_eventlist_size;
-        return ctx;
-    }
-    else{
-        EventContext * ctx = NULL;
-        spin_lock(&spinlock_eventlist);
-        ctx = (EventContext *)global_eventlist;
-        if (likely(ctx)){global_eventlist = global_eventlist->next;}
-        spin_unlock(&spinlock_eventlist);
-        if (likely(ctx)){return ctx;}
-    }
-
-    /* malloc/mmap */
-    {
-        EventContext * ctxs = (EventContext *)malloc(sizeof(EventContext) * EVT_INCREASE_SIZE_AT_EMPTY);
-        if (ctxs == NULL){
-            /* logging, memory shortage */
-            return NULL;
-        }
-        for (int i = 1; i < EVT_INCREASE_SIZE_AT_EMPTY; ++i){
-            evtctx_free(ctxs + i);
-        }
-        return (ctxs);
     }
 };
 /////////////////////////////////////////////////////////////////////////
@@ -392,6 +308,11 @@ static inline uint8_t * fibtask_stackcache_get(uint32_t * stacksize){
 /*     user init_func  --> scheduler                                   */
 /////////////////////////////////////////////////////////////////////////
 static void * cpp_taskmain(FibTCB * the_tcb){
+    /* callback taskStartup */
+    if (the_tcb->onTaskStartup){
+        the_tcb->onTaskStartup(the_tcb);
+    }
+
     /* increase number of fibtasks in system */
     FAA(&nFibTaskInSystem);
 
@@ -401,18 +322,17 @@ static void * cpp_taskmain(FibTCB * the_tcb){
     /* decrease number of fibtasks in system */
     FAS(&nFibTaskInSystem);
 
+    /* callback on taskCleanup */
+    if (the_tcb->onTaskCleanup){
+        the_tcb->onTaskCleanup(the_tcb);
+    }
+
     /* remove current task from ready list*/
     _CHAIN_REMOVE(the_tcb);
     --local_readylist_size;
 
     // int local_ready = local_readylist_size;
     // printf("%d tasks ready now.\n", local_ready);
-
-    /* delete all polling events */
-    fibtask_unregister_all_events(the_tcb);
-
-    /* free EventContext */
-    fibtask_free_all_eventcontext(the_tcb);
     
     /* free the_tcb */
     tcb_free(the_tcb);
@@ -433,90 +353,6 @@ static void * cpp_taskmain(FibTCB * the_tcb){
     /* never reach here */
     return ((void *)(0));
 }
-
-/* maintask should be the only task can call thread level blocking functions.
- */ 
-static void * maintask(void * args){
-    /* user initialization function */
-    fibthread_args_t * pargs = (fibthread_args_t *)args;
-    if (!pargs->init_func(pargs->args)){
-        // pthread_exit(-1);
-        return ((void *)(0));
-    }
-
-    /* increase number of service threads in system */
-    FAA(&mServiceThreads);
-
-    uint64_t prev_stmp = _utime();
-    /* running thread level epoll & scheduling */
-    while (true){
-        /* call epoll */
-        int rc = epoll_wait(epoll_fd, epoll_events, MAX_EPOLL_EVENTS_PER_THREAD, 10);
-        if (unlikely(rc < 0)){
-            /* fatal error */
-            continue;
-        }
-
-        /* collecting activated tasks */
-        fibtcb_chain_t local_postlist;
-        _CHAIN_INIT_EMPTY(&local_postlist);
-
-        for (int i = 0; i < rc; ++i){
-            EventContext * ctx = (EventContext *)(epoll_events[i].data.ptr);
-            FibTCB * the_tcb = ctx->tcb;
-
-            the_tcb->pendingEvents |= (1 << (ctx->index));
-            the_tcb->events[ctx->index]->events_o = epoll_events[i].events;
-
-            /* extract from blocklist */
-            _CHAIN_REMOVE(the_tcb);
-
-            /* append to local post list */
-            _CHAIN_INSERT_TAIL(&local_postlist, the_tcb);
-
-            printf("Event: fd = %d, tcb = %p\n", ctx->fd, ctx->tcb);
-        }
-
-        /* post/activate tasks */
-        {
-            FibTCB * the_tcb, * next_tcb;
-            _CHAIN_FOREACH_SAFE(the_tcb, &local_postlist, FibTCB, next_tcb){
-                fibtask_post(the_tcb);
-            }
-        }
-
-        /* fire watchdogs */
-        uint64_t curr_stmp = _utime();
-        uint64_t curr_gapp = curr_stmp - prev_stmp;
-        fibtask_watchdog_tickle(curr_gapp);
-        prev_stmp = curr_stmp;
-
-        /* yield control to other tasks in thread */
-        fibtask_sched_yield();
-    }
-    
-    /* decrease number of service threads in system */
-    FAA(&mServiceThreads);
-
-    // pthread_exit(0);
-    return ((void *)(0));
-}
-
-void * thread_maintask(void * args){
-    /* initialize thread environment */
-    FibTaskThreadStartup();
-
-    /* create maintask (reuse thread's stack) */
-    struct {} C;
-    the_maintask = fibtask_create(maintask, args, (void *)(&C), 0UL);
-
-    /* set current task to maintask & switch to it */
-    current_task = the_maintask;
-    goto_context(&(the_maintask->regs));
-
-    /* never return here */
-    return ((void *)(0));
-}
 /////////////////////////////////////////////////////////////////////////
 
 /////////////////////////////////////////////////////////////////////////
@@ -533,8 +369,6 @@ FibTCB * fibtask_create(
 
     /* initialize to (0) */
     the_task->state = STATES_READY;
-    the_task->usedEventMask = ~0ULL;
-    the_task->pendingEvents =  0ULL;
 
     uint8_t * stackbase = (uint8_t *)stackaddr;
     if (stackbase == NULL){
@@ -554,6 +388,17 @@ FibTCB * fibtask_create(
     the_task->entry = func;
     the_task->args  = args;
 
+    /* callbacks */
+    the_task->preSwitchingThread  = NULL;
+    the_task->postSwitchingThread = NULL;
+    the_task->onTaskStartup       = NULL;
+    the_task->onTaskCleanup       = NULL;
+
+    the_task->taskLocalStorages[0] = 0ULL;
+    the_task->taskLocalStorages[1] = 0ULL;
+    the_task->taskLocalStorages[2] = 0ULL;
+    the_task->taskLocalStorages[3] = 0ULL;
+
     /* r12 (tcb), r15 (cpp_taskmain), rip (asm_taskmain), rsp */
     the_task->regs.reg_r12 = (uint64_t)(the_task);
     the_task->regs.reg_r15 = (uint64_t)(cpp_taskmain);
@@ -567,6 +412,15 @@ FibTCB * fibtask_create(
     return the_task;
 }
 /////////////////////////////////////////////////////////////////////////
+
+
+bool fibtask_set_thread_maintask(FibTCB * the_task){
+    the_maintask = the_task;
+    if (current_task == NULL){
+        current_task = the_task;
+    }
+    return true;
+}
 
 FibTCB * fibtask_ident(){
     return current_task;
@@ -596,7 +450,9 @@ static inline void fibtask_sched(){
 
         if (likely(next_task != NULL)){
             /* add all polling events */
-            fibtask_reregister_all_events(next_task);
+            if (next_task->postSwitchingThread){
+                next_task->postSwitchingThread(next_task);
+            }
             break;
         }
 
@@ -620,19 +476,17 @@ static inline void fibtask_sched(){
 }
 /////////////////////////////////////////////////////////////////////////
 
-/////////////////////////////////////////////////////////////////////////
-/* yield/resume                                                        */
-/////////////////////////////////////////////////////////////////////////
-FibTCB * fibtask_yield(uint64_t code){
-    FibTCB * the_task = current_task;
-    
+static inline int fibtask_setstate(FibTCB * the_task, uint64_t states){
+    /* decrease # of ready task in local list */ 
+    if (likely((the_task->state & STATES_BLOCKED) == 0)){
+        --local_readylist_size;
+    }
+
     /* set state */
-    the_task->state |= STATES_SUSPENDED;
-    the_task->yieldCode = code;
+    the_task->state |= states;
 
     /* extract from ready list */
     _CHAIN_REMOVE(the_task);
-    if (likely(the_task->state == STATES_SUSPENDED)){ --local_readylist_size; }
 
     /* insert into blocked list */
     _CHAIN_INSERT_TAIL(&local_blocklist, the_task);
@@ -640,23 +494,19 @@ FibTCB * fibtask_yield(uint64_t code){
     /* fibtask_sched to next task */
     fibtask_sched();
 
-    return (the_task);
+    return (0);
 }
 
-uint64_t fibtask_resume(FibTCB * the_task){
-    int yieldCode = the_task->yieldCode;
-
-    /* already in ready state */
-    if (unlikely((the_task->state & STATES_SUSPENDED) == 0)){
-        return (yieldCode);
+static inline int fibtask_clrstate(FibTCB * the_task, uint64_t states){
+    /* check those states are set (?) */
+    if (unlikely((the_task->state & states) == 0)){
+        return (0);
     }
 
-    /* remove SUSPEND mask */
-    the_task->state &= (~STATES_SUSPENDED);
-
-    /* still blocked (?) */
-    if (unlikely(the_task->state)){
-        return (yieldCode);
+    /* clear the state */
+    the_task->state &= (~states);
+    if (unlikely(the_task->state & STATES_BLOCKED)){
+        return (0);
     }
 
     /* extract from blocked list */
@@ -665,8 +515,10 @@ uint64_t fibtask_resume(FibTCB * the_task){
     /* put into global ready list if too much tasks in local list */
     if (unlikely((the_task != the_maintask) && (local_readylist_size >= MAX_LOCAL_READY_TASKS))){
         /* delete all polling events */
-        fibtask_unregister_all_events(the_task);
-
+        if (the_task->preSwitchingThread){
+            the_task->preSwitchingThread(the_task);
+        }
+        
         /* put onto global ready list */
         spin_lock(&spinlock_readylist);
         _CHAIN_INSERT_TAIL(&global_readylist, the_task);
@@ -677,6 +529,22 @@ uint64_t fibtask_resume(FibTCB * the_task){
         _CHAIN_INSERT_TAIL(&local_readylist, the_task);
         ++local_readylist_size;
     }
+    return (0);
+}
+
+/////////////////////////////////////////////////////////////////////////
+/* yield/resume                                                        */
+/////////////////////////////////////////////////////////////////////////
+FibTCB * fibtask_yield(uint64_t code){
+    FibTCB * the_task = current_task; 
+    the_task->yieldCode = code;
+    fibtask_setstate(the_task, STATES_SUSPENDED);
+    return (the_task);
+}
+
+uint64_t fibtask_resume(FibTCB * the_task){
+    int yieldCode = the_task->yieldCode;
+    fibtask_clrstate(the_task, STATES_SUSPENDED);
     return (yieldCode);
 }
 
@@ -697,77 +565,66 @@ FibTCB * fibtask_sched_yield(){
 /////////////////////////////////////////////////////////////////////////
 /* wait/post events (only used internally)                             */
 /////////////////////////////////////////////////////////////////////////
-static inline int fibtask_wait(int timeout){
+uint64_t fibtask_wait(uint64_t events_in, int options, int timeout){
     FibTCB * the_task = current_task;
     
-    /* set state */
-    the_task->state |= STATES_WAITFOR_EVENT;
-
-    /* extract from ready list */
-    _CHAIN_REMOVE(the_task);
-    if (likely(the_task->state == STATES_WAITFOR_EVENT)){ --local_readylist_size; }
-
-    /* insert into blocked list */
-    _CHAIN_INSERT_TAIL(&local_blocklist, the_task);
-
-    /* insert into watchdog list if specified */
-    if (timeout > 0){
-    	the_task->state |= STATES_WAITFOR_TIMER;
-    	the_task->delta_interval = timeout;
-    	fibtask_watchdog_insert(the_task);
+    /* check the pending events */
+    uint64_t seized_events = the_task->pendingEvents & events_in;
+    if (seized_events && ((seized_events == events_in) || (options & TASK_EVENT_WAIT_ANY))){
+        the_task->pendingEvents &= (~seized_events);
+        return seized_events;
     }
 
-    /* fibtask_sched to next task */
-    fibtask_sched();
+    /* no wait, test only (?) */
+    if (unlikely(timeout == 0)){
+        return 0ULL;
+    }
 
-    return (0);
+    uint64_t states = STATES_WAITFOR_EVENT; 
+    the_task->seizedEvents   = 0ULL;
+    the_task->waitingEvents  = events_in;
+    the_task->waitingOptions = options;
+
+    /* timeout set (?) */
+    if (likely(timeout > 0)){
+        states |= STATES_WAIT_TIMEOUTB;
+        the_task->delta_interval = timeout;
+        fibtask_watchdog_insert(the_task);
+    }
+
+    fibtask_setstate(the_task, states);
+    return (the_task->seizedEvents);
 }
 
 /* post event (only used internally) */
-static inline int fibtask_post(FibTCB * the_task){
-    /* already in ready state */
-    if (unlikely((the_task->state & (STATES_WAITFOR_EVENT | STATES_WAITFOR_TIMER)) == 0)){
+int fibtask_post(FibTCB * the_task, uint64_t events_in){
+    /* put onto pendingEvents */
+    the_task->pendingEvents |= events_in;
+    
+    /* waiting on events (?) */
+    if (unlikely((the_task->state & (STATES_WAITFOR_EVENT | STATES_WAIT_TIMEOUTB)) == 0)){
         return (0);
     }
 
-    /* remove WAITFOR EVENTS mask */
-    the_task->state &= (~STATES_WAITFOR_EVENT);
-
-    /* check if on watchdog chain (?) */
-    if (the_task->state & STATES_WAITFOR_TIMER){
-    	fibtask_watchdog_remove(the_task);
-    }
-    the_task->state &= (~STATES_WAITFOR_TIMER);
-
-    /* still blocked (?) */
-    if (unlikely(the_task->state)){
-        return (1);
-    }
-
-    /* extract from blocked list */
-    _CHAIN_REMOVE(the_task);
-
-    /* put into global ready list if too much tasks in local list */
-    if (unlikely((the_task != the_maintask) && (local_readylist_size >= MAX_LOCAL_READY_TASKS))){
-        /* delete all polling events */
-        fibtask_unregister_all_events(the_task);
-
-        /* put onto global ready list */
-        spin_lock(&spinlock_readylist);
-        _CHAIN_INSERT_TAIL(&global_readylist, the_task);
-        ++global_readylist_size;
-        spin_unlock(&spinlock_readylist);
-    }
-    else{
-        _CHAIN_INSERT_TAIL(&local_readylist, the_task);
-        ++local_readylist_size;
+    /* wakeup the task (?) */
+    uint64_t seized_events = the_task->pendingEvents & the_task->waitingEvents;
+    if (seized_events && ((seized_events == the_task->waitingEvents) || (the_task->waitingOptions & TASK_EVENT_WAIT_ANY))){
+        the_task->pendingEvents &= (~seized_events);
+        the_task->seizedEvents = seized_events;
+        fibtask_clrstate(the_task, (STATES_WAITFOR_EVENT | STATES_WAIT_TIMEOUTB));
     }
     return (0);
 }
 
 void fibtask_usleep(int usec){
-    fibtask_wait(usec);
+    FibTCB * the_task = current_task;
+
+    the_task->delta_interval = usec;
+    fibtask_watchdog_insert(the_task);
+    fibtask_setstate(the_task, STATES_IN_USLEEP);
 }
+/////////////////////////////////////////////////////////////////////////
+
 /////////////////////////////////////////////////////////////////////////
 /* watchdog or timeout support                                         */
 /////////////////////////////////////////////////////////////////////////
@@ -800,12 +657,15 @@ static inline int fibtask_watchdog_remove(FibTCB * the_tcb){
 	return (0);
 }
 
-static inline int fibtask_watchdog_tickle(int gap){
+/* this functions ias called from thread maintask (scheduling task) */
+int fibtask_watchdog_tickle(int gap){
 	FibTCB * the_tcb, * the_nxt;
 	CHAIN_FOREACH_SAFE(the_tcb, &local_wadoglist, link, the_nxt){
 		if (the_tcb->delta_interval <= gap){
-			/* activate the tcb */
-			fibtask_post(the_tcb);
+            CHAIN_REMOVE(the_tcb, FibTCB, link);
+
+            /* make it ready */
+            fibtask_clrstate(the_tcb, STATES_BLOCKED);
 		}
 		else{
 			the_tcb->delta_interval -= gap;
@@ -814,116 +674,5 @@ static inline int fibtask_watchdog_tickle(int gap){
 	}
 
 	return (0);
-}
-/////////////////////////////////////////////////////////////////////////
-
-/////////////////////////////////////////////////////////////////////////
-/* EPOLL BINDING                                                       */
-/////////////////////////////////////////////////////////////////////////
-int fibtask_register_events(int fd, int events){
-    FibTCB * the_task = current_task;
-
-    int index = __ffs64(the_task->usedEventMask);
-    if (unlikely(index == 0)){return -1;};
-
-    EventContext * pctx = evtctx_alloc();
-    if (unlikely(pctx == NULL)){return -1;};
-
-    /* decrease index -> 0 based */
-    --index;
-
-    /* fill the EventContext */
-    pctx->fd       = fd; 
-    pctx->events_i = events;
-
-    pctx->index    = index;
-
-    pctx->tcb      = the_task;
-
-    /* remove unused mask bit */
-    the_task->usedEventMask &= (~(1ULL << (index)));
-    the_task->events[index] = (void *)(pctx);
-
-    struct epoll_event event;
-    event.data.ptr = (void *)pctx;
-    event.events   = events;
-
-    if (unlikely(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event) < 0)){
-        the_task->usedEventMask |= (1ULL << index);
-        evtctx_free(pctx);
-
-        return (-1);
-    }
-    return (index);
-}
-
-static inline int fibtask_polling_events(
-    FibTCB * the_task, 
-    struct epoll_event * events
-    ){
-    uint64_t mask = the_task->pendingEvents;
-    int      n    = 0;
-
-    #define callback_setfd(p) do {                                      \
-        events[n].events  = the_task->events[p]->events_o;              \
-        events[n].data.fd = the_task->events[p]->fd;                    \
-        ++n;                                                            \
-    } while(0)
-
-    callback_on_setbit(mask, callback_setfd);
-    the_task->pendingEvents = 0ULL;
-    return n;
-}
-
-static inline int fibtask_unregister_all_events(FibTCB * the_tcb){
-    uint64_t mask = (~(the_tcb->usedEventMask));
-
-    #define callback_unreg(p) do {                                      \
-        epoll_ctl(                                                      \
-            epoll_fd, EPOLL_CTL_DEL,                                    \
-            the_tcb->events[p]->fd, NULL                                \
-            );                                                          \
-    } while(0)
-
-    callback_on_setbit(mask, callback_unreg);
-    return (0);
-}
-
-static inline int fibtask_reregister_all_events(FibTCB * the_tcb){
-    uint64_t mask = (~(the_tcb->usedEventMask));
-
-    #define callback_rereg(p) do {                                      \
-        struct epoll_event event;                                       \
-        event.data.ptr = (void *)(the_tcb->events[p]);                  \
-        event.events   = the_tcb->events[p]->events_i;                  \
-        epoll_ctl(                                                      \
-            epoll_fd, EPOLL_CTL_ADD,                                    \
-            the_tcb->events[p]->fd, &event                              \
-            );                                                          \
-    } while(0)
-
-    callback_on_setbit(mask, callback_rereg);
-    return (0);
-}
-
-static inline int fibtask_free_all_eventcontext(FibTCB * the_tcb){
-    uint64_t mask = (~(the_tcb->usedEventMask));
-
-    #define callback_freectx(p) do {                                    \
-        evtctx_free(the_tcb->events[p]);                                \
-    } while(0)
-
-    callback_on_setbit(mask, callback_freectx);
-    return (0);
-}
-
-int fibtask_epoll_wait(
-    struct epoll_event * events, 
-    int maxEvents, 
-    int timeout_in_ms
-){
-    FibTCB * the_task = current_task;
-    if (likely(the_task->pendingEvents == 0)){ fibtask_wait(timeout_in_ms * 1000); }
-    return fibtask_polling_events(the_task, events);
 }
 /////////////////////////////////////////////////////////////////////////
