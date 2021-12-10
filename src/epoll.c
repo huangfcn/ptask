@@ -99,7 +99,7 @@ void * epoll_thread(void * args){
     fibtask_set_thread_maintask(the_task);
 
     /* set current task to maintask & switch to it */
-    goto_context(&(the_task->regs));
+    goto_contxt2(&(the_task->regs));
 
     /* never return here */
     return ((void *)(0));

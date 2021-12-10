@@ -32,20 +32,32 @@ swap_context:
   mov %rcx,       %rsp
   jmpq *%rax
 
-
+  # goto for thread maintask
   .align 32
-  .global save_context
-save_context:
-  mov 0x00(%rsp), %rdx
-  lea 0x08(%rsp), %rcx         
-  mov %r12,       0x00(%rdi)
+  .global goto_contxt2
+goto_contxt2:
+  # save r12 and r15 into stack
+  pushq %r12
+  pushq %r15
+
+  # make a return addres
+  lea rethere(%rip), %rax
+  pushq %rax
+
+  # update sp
+  lea 0x00(%rsp), %rcx
+  
   mov %r13,       0x08(%rdi)
   mov %r14,       0x10(%rdi)
-  mov %r15,       0x18(%rdi)
-  mov %rdx,       0x20(%rdi)  
+  
   mov %rcx,       0x28(%rdi)
   mov %rbx,       0x30(%rdi)
   mov %rbp,       0x38(%rdi)
+  jmp goto_context
+
+rethere:
+  popq %r15
+  popq %r12
   ret
 
   .align 32

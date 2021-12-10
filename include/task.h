@@ -62,6 +62,18 @@ typedef struct EventContextControlBlock {
 struct FibTCB;
 typedef struct FibTCB FibTCB;
 
+typedef struct FibCTX{
+    uint64_t    reg_r12;    // 0
+    uint64_t    reg_r13;    // 8
+    uint64_t    reg_r14;    // 16
+    uint64_t    reg_r15;    // 24
+
+    uint64_t    reg_rip;    // 32
+    uint64_t    reg_rsp;    // 40
+    uint64_t    reg_rbx;    // 48
+    uint64_t    reg_rbp;    // 56
+} FibCTX;
+
 struct FibTCB{
     /* ready / suspend / free queue */
     CHAIN_ENTRY(FibTCB) node;  
@@ -102,17 +114,7 @@ struct FibTCB{
     bool      (* onTaskCleanup)(FibTCB *);
 
     /* CPU switching context */
-    struct _regs_s{
-        uint64_t    reg_r12;    // 0
-        uint64_t    reg_r13;    // 8
-        uint64_t    reg_r14;    // 16
-        uint64_t    reg_r15;    // 24
-
-        uint64_t    reg_rip;    // 32
-        uint64_t    reg_rsp;    // 40
-        uint64_t    reg_rbx;    // 48
-        uint64_t    reg_rbp;    // 56
-    } regs;
+    FibCTX regs;
 };
 
 ///////////////////////////////////////////////////////////////////
@@ -191,8 +193,8 @@ int fibtask_post(FibTCB * the_task, uint64_t events_in);
 /* assembly code in context.S   */
 //////////////////////////////////
 void swap_context(void *, void *);
-void save_context(void *        );
 void goto_context(void *        );
+void goto_contxt2(void *        );
 void asm_taskmain(              );
 //////////////////////////////////
 

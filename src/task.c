@@ -322,6 +322,8 @@ static void * cpp_taskmain(FibTCB * the_tcb){
     /* decrease number of fibtasks in system */
     FAS(&nFibTaskInSystem);
 
+    bool is_maintask = (the_tcb == the_maintask);
+
     /* callback on taskCleanup */
     if (the_tcb->onTaskCleanup){
         the_tcb->onTaskCleanup(the_tcb);
@@ -345,6 +347,8 @@ static void * cpp_taskmain(FibTCB * the_tcb){
             the_tcb->stacksize & (~15UL)
             );
     }
+
+    if (is_maintask){ return (void *)(0); }
 
     /* switch to thread maintask */
     current_task = the_maintask;

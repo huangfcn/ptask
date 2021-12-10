@@ -6,7 +6,6 @@
 #include "chain.h"
 #include "task.h"
 
-
 void * generator(void * args){
 	for (int i = 0; i < 1000; ++i){
 		fibtask_yield(i);
@@ -26,11 +25,10 @@ void * generator_maintask(void * args){
 		fibtask_sched_yield();
 
 		int64_t code = fibtask_resume(the_gen);
-		printf("code = %lld\n", code);
+		printf("code = %ld\n", code);
 	}
 
-	/* cannot return (return address not setup) */
-	exit(0);
+	return (void *)(0);
 }
 
 void * generator_thread(void * args){
@@ -42,10 +40,9 @@ void * generator_thread(void * args){
     FibTCB * the_task = fibtask_create(generator_maintask, args, (void *)(&C), 0UL);
     fibtask_set_thread_maintask(the_task);
 
-    /* set current task to maintask & switch to it */
-    goto_context(&(the_task->regs));
+    /* call maintask goto_context */
+    goto_contxt2(&(the_task->regs));
 
-    /* never return here */
     return ((void *)(0));
 }
 
