@@ -43,17 +43,11 @@ static int make_socket_non_blocking(int sfd)
     int flags, s;
 
     flags = fcntl(sfd, F_GETFL, 0);
-    if (flags == -1)
-    {
-        return -1;
-    }
+    if (flags == -1){ return -1; }
 
     flags |= O_NONBLOCK;
     s = fcntl(sfd, F_SETFL, flags);
-    if (s == -1)
-    {
-        return -1;
-    }
+    if (s == -1) { return -1; }
 
     return 0;
 }
@@ -78,11 +72,7 @@ static const char reply[] =
 
 ssize_t fdread(int fd, char * buf, int bufsize){
     ssize_t rc = read(fd, buf, bufsize);
-    if (rc < 0){
-        return (errno == EAGAIN) ? (-1) : (-2);
-    }
-
-    return rc;
+    return (rc >= 0) ? (rc) : ((errno == EAGAIN) ? (-1) : (-2));
 }
 
 void * requestHandler(void* args)
@@ -105,9 +95,8 @@ void * requestHandler(void* args)
     struct epoll_event events[MAXEVENTS];
     fibtask_register_events(infd, EPOLLIN | EPOLLET);
 
-    int done = 0;
     /* The event loop */
-    while (!done)
+    while (true)
     {
         int n = fibtask_epoll_wait(events, MAXEVENTS, 2000);
         assert(n <= 1);
@@ -130,25 +119,33 @@ void * requestHandler(void* args)
                  * completely, as we are running in edge-triggered mode
                  * and won't get a notification again for the same
                  * data. */
-                 while (1) {
-                    ssize_t rc; char buf[512];
-
-                    rc = fdread(events[i].data.fd, buf, sizeof buf);
+                char buf[512], * pbuf = buf;
+                ssize_t nread = 0, bufsize = sizeof buf, done = 0, rc; 
+                while (1) {
+                    rc = fdread(events[i].data.fd, pbuf, bufsize);
                     if (rc == -2){done = 1; break;};
                     if (rc == -1){done = 0; break;};
                     if (rc == +0){done = 1; break;};
 
-                    /* Write the reply to connection */
-                    s = write(events[i].data.fd, reply, sizeof(reply));
-                    if (s == -1) {done = 1; break; }
+                    nread += rc; pbuf += rc; bufsize -= rc;
+                    if (bufsize <= 0){
+                        nread = 0; pbuf = buf; bufsize = sizeof buf;
+                    }
                 }
 
-                if (done) {
-                    printf("Closed connection on descriptor %d\n", events[i].data.fd);
+                if (!done){
+                    /* Write the reply to connection */
+                    s = write(events[i].data.fd, reply, sizeof(reply));
+                    if (s < 0){done = 1;};
+                }
 
+                if (done){
+                    printf("Closed connection on descriptor %d\n", events[i].data.fd);
                     /* Closing the descriptor will make epoll remove it
                      * from the set of descriptors which are monitored. */
                     close(events[i].data.fd);
+
+                    break;
                 }
             }
         }
