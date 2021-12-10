@@ -30,7 +30,7 @@ typedef struct EventContextControlBlock {
 /* epoll integeration                                            */
 ///////////////////////////////////////////////////////////////////
 struct epoll_event;
-int fiber_register_events(int fd, int events);
+int fiber_epoll_register_events(int fd, int events);
 int fiber_epoll_wait(
     struct epoll_event * events, 
     int maxEvents, 

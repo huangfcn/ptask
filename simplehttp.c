@@ -91,7 +91,7 @@ void * requestHandler(void* args)
     epoll_install_callbacks(fiber_ident());
 
     struct epoll_event events[MAXEVENTS];
-    fiber_register_events(infd, EPOLLIN | EPOLLET);
+    fiber_epoll_register_events(infd, EPOLLIN | EPOLLET);
 
     /* The event loop */
     while (true)
@@ -181,7 +181,7 @@ void* server(void* args)
     fiber_set_localdata(fiber_ident(), 0, (uint64_t)(&ctxcb));
     epoll_install_callbacks(fiber_ident());
 
-    fiber_register_events(sfd, EPOLLIN | EPOLLET);
+    fiber_epoll_register_events(sfd, EPOLLIN | EPOLLET);
 
     /* The event loop */
     while (1)

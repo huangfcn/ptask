@@ -6,8 +6,8 @@
 
 #include "timestamp.h"
 
-static inline bool fiber_unregister_all_events(FibTCB * the_tcb);
-static inline bool fiber_reregister_all_events(FibTCB * the_tcb);
+static inline bool fiber_epoll_unregister_all_events(FibTCB * the_tcb);
+static inline bool fiber_epoll_reregister_all_events(FibTCB * the_tcb);
 
 /* epoll specific data */
 static __thread_local int epoll_fd = 0;
@@ -79,8 +79,8 @@ static void * epoll_maintask(void * args){
 bool epoll_install_callbacks(FibTCB * the_task){
     fiber_install_callbacks(
         the_task,
-        fiber_unregister_all_events,
-        fiber_reregister_all_events,
+        fiber_epoll_unregister_all_events,
+        fiber_epoll_reregister_all_events,
         NULL,
         NULL
         );
@@ -143,7 +143,7 @@ void * epoll_thread(void * args){
 /////////////////////////////////////////////////////////////////////////
 /* EPOLL BINDING                                                       */
 /////////////////////////////////////////////////////////////////////////
-int fiber_register_events(int fd, int events){
+int fiber_epoll_register_events(int fd, int events){
     FibTCB * the_task = fiber_ident();
 
     EventContextControlBlock * pcb = (EventContextControlBlock *)fiber_get_localdata(the_task, 0);
@@ -175,7 +175,7 @@ int fiber_register_events(int fd, int events){
     return (index);
 }
 
-static inline int fiber_polling_events(
+static inline int fiber_epoll_polling_events(
     FibTCB * the_task, 
     uint64_t mask,
     struct epoll_event * events
@@ -194,7 +194,7 @@ static inline int fiber_polling_events(
     return n;
 }
 
-static inline bool fiber_unregister_all_events(FibTCB * the_tcb){
+static inline bool fiber_epoll_unregister_all_events(FibTCB * the_tcb){
     EventContextControlBlock * pcb = (EventContextControlBlock *)fiber_get_localdata(the_tcb, 0);
     uint64_t mask = (~(pcb->usedEventMask));
     #define callback_unreg(p) do {                                      \
@@ -208,7 +208,7 @@ static inline bool fiber_unregister_all_events(FibTCB * the_tcb){
     return (0);
 }
 
-static inline bool fiber_reregister_all_events(FibTCB * the_tcb){
+static inline bool fiber_epoll_reregister_all_events(FibTCB * the_tcb){
     EventContextControlBlock * pcb = (EventContextControlBlock *)fiber_get_localdata(the_tcb, 0);
     uint64_t mask = (~(pcb->usedEventMask));
     #define callback_rereg(p) do {                                      \
@@ -232,6 +232,6 @@ int fiber_epoll_wait(
 ){
     FibTCB * the_task = fiber_ident();
     uint64_t mask = fiber_wait(~0ULL, TASK_EVENT_WAIT_ANY, timeout_in_ms * 1000);
-    return fiber_polling_events(the_task, mask, events);
+    return fiber_epoll_polling_events(the_task, mask, events);
 }
 /////////////////////////////////////////////////////////////////////////
