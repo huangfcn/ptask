@@ -64,7 +64,7 @@ typedef struct FibTCB FibTCB;
 
 struct FibTCB{
     /* ready / suspend / free queue */
-	CHAIN_ENTRY(FibTCB) node;  
+    CHAIN_ENTRY(FibTCB) node;  
 
     /* start point, arguments */
     void *    (*entry)(void *);
