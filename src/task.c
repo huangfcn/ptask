@@ -394,11 +394,6 @@ FibTCB * fibtask_create(
     the_task->onTaskStartup       = NULL;
     the_task->onTaskCleanup       = NULL;
 
-    the_task->taskLocalStorages[0] = 0ULL;
-    the_task->taskLocalStorages[1] = 0ULL;
-    the_task->taskLocalStorages[2] = 0ULL;
-    the_task->taskLocalStorages[3] = 0ULL;
-
     /* r12 (tcb), r15 (cpp_taskmain), rip (asm_taskmain), rsp */
     the_task->regs.reg_r12 = (uint64_t)(the_task);
     the_task->regs.reg_r15 = (uint64_t)(cpp_taskmain);
@@ -476,6 +471,9 @@ static inline void fibtask_sched(){
 }
 /////////////////////////////////////////////////////////////////////////
 
+/////////////////////////////////////////////////////////////////////////
+/* set / clear blocking states                                         */
+/////////////////////////////////////////////////////////////////////////
 static inline int fibtask_setstate(FibTCB * the_task, uint64_t states){
     /* decrease # of ready task in local list */ 
     if (likely((the_task->state & STATES_BLOCKED) == 0)){
@@ -531,6 +529,7 @@ static inline int fibtask_clrstate(FibTCB * the_task, uint64_t states){
     }
     return (0);
 }
+/////////////////////////////////////////////////////////////////////////
 
 /////////////////////////////////////////////////////////////////////////
 /* yield/resume                                                        */
