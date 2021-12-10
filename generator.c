@@ -13,11 +13,6 @@ void * generator(void * args){
     return (void *)(0);
 }
 
-
-bool initializeTask(void* args) {
-    return true;
-}
-
 void * generator_maintask(void * args){
     FibTCB * the_gen = fibtask_create(generator, args, NULL, 8192 * 2);
 
