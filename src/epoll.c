@@ -4,6 +4,8 @@
 #include "sysdef.h"
 #include "chain.h"
 #include "task.h"
+#include "epoll.h"
+
 #include "timestamp.h"
 
 static inline bool fibtask_unregister_all_events(FibTCB * the_tcb);

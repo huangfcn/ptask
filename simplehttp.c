@@ -15,9 +15,9 @@
 #include <assert.h>
 
 #include "sysdef.h"
-#include "spinlock.h"
 #include "chain.h"
 #include "task.h"
+#include "epoll.h"
 
 static int create_and_bind(int port)
 {

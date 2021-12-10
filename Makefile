@@ -9,7 +9,8 @@ INCFILES=include/task.h      \
          include/chain.h     \
          include/sysdef.h    \
          include/spinlock.h  \
-         include/timestamp.h
+         include/timestamp.h \
+         include/epoll.h
 
 context.o: src/context.S
 	$(AS) src/context.S
