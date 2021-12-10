@@ -23,7 +23,7 @@ static int create_and_bind(int port)
 {
 
     int portnum = port;
-    int s, sfd;
+    int sfd;
 
     sfd = socket(AF_INET, SOCK_STREAM, 0);
 
@@ -33,7 +33,7 @@ static int create_and_bind(int port)
     serv_addr.sin_addr.s_addr = INADDR_ANY;
     serv_addr.sin_port = htons(portnum);
 
-    s = bind(sfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
+    bind(sfd, (struct sockaddr*)&serv_addr, sizeof(serv_addr));
 
     return sfd;
 }
@@ -58,7 +58,7 @@ static int make_socket_non_blocking(int sfd)
     return 0;
 }
 
-#define MAXEVENTS 64
+#define MAXEVENTS  (4)
 
 static const char reply[] =
 "HTTP/1.0 200 OK\r\n"
@@ -76,9 +76,18 @@ static const char reply[] =
 "</html>"
 ;
 
+ssize_t fdread(int fd, char * buf, int bufsize){
+    ssize_t rc = read(fd, buf, bufsize);
+    if (rc < 0){
+        return (errno == EAGAIN) ? (-1) : (-2);
+    }
+
+    return rc;
+}
+
 void * requestHandler(void* args)
 {
-    int infd = (int)(args);
+    int infd = (int64_t)(args);
     int s = make_socket_non_blocking(infd);
     if (s == -1)
         abort();
@@ -100,105 +109,70 @@ void * requestHandler(void* args)
     /* The event loop */
     while (!done)
     {
-        int n, i;
+        int n = fibtask_epoll_wait(events, MAXEVENTS, 2000);
+        assert(n <= 1);
 
-        n = fibtask_epoll_wait(events, MAXEVENTS, -1);
-        for (i = 0; (i < n) && (!done); i++) {
+        if (n == 1) {
+            int i = 0;
 
             if ((events[i].events & EPOLLERR) ||
                 (events[i].events & EPOLLHUP) ||
-                (!(events[i].events & EPOLLIN)))
-            {
+                (!(events[i].events & EPOLLIN))) {
                 /* An error has occured on this fd, or the socket is not
                  * ready for reading (why were we notified then?) */
                 fprintf(stderr, "epoll error. events=%u\n", events[i].events);
                 close(events[i].data.fd);
-                continue;
+                break;
             }
-            else
-            {
+            else {
                 /* We have data on the fd waiting to be read. Read and
                  * display it. We must read whatever data is available
                  * completely, as we are running in edge-triggered mode
                  * and won't get a notification again for the same
                  * data. */
-                 while (1)
-                {
-                    ssize_t count;
-                    char buf[512];
+                 while (1) {
+                    ssize_t rc; char buf[512];
 
-                    count = read(events[i].data.fd, buf, sizeof buf);
-                    if (count == -1)
-                    {
-                        /* If errno == EAGAIN, that means we have read all
-                         * data. So go back to the main loop. */
-                        if (errno != EAGAIN)
-                        {
-                            perror("read");
-                            done = 1;
-                        }
-                        break;
-                    }
-                    else if (count == 0)
-                    {
-                        /* End of file. The remote has closed the
-                         * connection. */
-                        done = 1;
-                        break;
-                    }
+                    rc = fdread(events[i].data.fd, buf, sizeof buf);
+                    if (rc == -2){done = 1; break;};
+                    if (rc == -1){done = 0; break;};
+                    if (rc == +0){done = 1; break;};
 
                     /* Write the reply to connection */
                     s = write(events[i].data.fd, reply, sizeof(reply));
-                    if (s == -1)
-                    {
-                        perror("write");
-                        abort();
-                    }
+                    if (s == -1) {done = 1; break; }
                 }
 
-                if (done)
-                {
+                if (done) {
                     printf("Closed connection on descriptor %d\n", events[i].data.fd);
 
                     /* Closing the descriptor will make epoll remove it
                      * from the set of descriptors which are monitored. */
                     close(events[i].data.fd);
-
-                    break;
                 }
             }
         }
     }
+
+    return (void *)(0);
 }
 
 void* server(void* args)
 {
-    int portnum = (int)(args);
+    int portnum = (int64_t)(args);
 
     int sfd, s;
-    int efd;
-    struct epoll_event event;
-    struct epoll_event* events;
+    struct epoll_event events[MAXEVENTS];
 
     sfd = create_and_bind(portnum);
-    if (sfd == -1)
-        abort();
+    if (sfd == -1) abort();
 
     s = make_socket_non_blocking(sfd);
-    if (s == -1)
-        abort();
+    if (s == -1) abort();
 
     s = listen(sfd, SOMAXCONN);
-    if (s == -1)
-    {
+    if (s == -1) {
         perror("listen");
-        abort();
-    }
-
-    efd = epoll_create1(0);
-    if (efd == -1)
-    {
-        perror("epoll_create");
         abort();
     }
 
@@ -214,58 +188,47 @@ void* server(void* args)
 
     fibtask_register_events(sfd, EPOLLIN | EPOLLET);
 
-    /* Buffer where events are returned */
-    events = calloc(MAXEVENTS, sizeof event);
-
     /* The event loop */
     while (1)
     {
-        int n, i;
+        int n = fibtask_epoll_wait(events, MAXEVENTS, 1000);
+        assert(n <= 1);
 
-        n = fibtask_epoll_wait(events, MAXEVENTS, -1);
-        for (i = 0; i < n; i++) {
-
+        if (n == 1){
+            int i = 0;
             if ((events[i].events & EPOLLERR) ||
                 (events[i].events & EPOLLHUP) ||
-                (!(events[i].events & EPOLLIN)))
-            {
+                (!(events[i].events & EPOLLIN))) {
                 /* An error has occured on this fd, or the socket is not
                  * ready for reading (why were we notified then?) */
                 fprintf(stderr, "epoll error. events=%u\n", events[i].events);
                 close(events[i].data.fd);
-                continue;
+                break;
             }
-            else if (sfd == events[i].data.fd)
-            {
+            else {
                 /* We have a notification on the listening socket, which
                  * means one or more incoming connections. */
                 while (1)
                 {
                     struct sockaddr in_addr;
-                    socklen_t in_len;
-                    int infd;
 
-                    in_len = sizeof in_addr;
-                    infd = accept(sfd, &in_addr, &in_len);
-                    if (infd == -1)
-                    {
+                    socklen_t in_len = sizeof in_addr;
+                    int infd = accept(sfd, &in_addr, &in_len);
+                    if (infd == -1) {
                         printf("errno=%d, EAGAIN=%d, EWOULDBLOCK=%d\n", errno, EAGAIN, EWOULDBLOCK);
-                        if ((errno == EAGAIN) ||
-                            (errno == EWOULDBLOCK))
-                        {
+                        if ((errno == EAGAIN) || (errno == EWOULDBLOCK)) {
                             /* We have processed all incoming
                              * connections. */
                             printf("processed all incoming connections.\n");
                             break;
                         }
-                        else
-                        {
+                        else {
                             perror("accept");
                             break;
                         }
                     }
                     else{
-                        fibtask_create(requestHandler, (void*)(infd), NULL, 8192 * 2);
+                        fibtask_create(requestHandler, (void*)((int64_t)infd), NULL, 8192 * 2);
                     }
                 }
             }
@@ -273,10 +236,7 @@ void* server(void* args)
 
     }
 
-    free(events);
-
     close(sfd);
-
     return EXIT_SUCCESS;
 }
 
@@ -295,7 +255,7 @@ int main(int argc, char* argv[])
 
     FibTaskGlobalStartup();
 
-    int portnum = atoi(argv[1]);
+    int64_t portnum = atoi(argv[1]);
     fibthread_args_t args = {
       .init_func = initializeTask,
       .args = (void *)(portnum),
