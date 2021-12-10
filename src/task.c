@@ -635,50 +635,50 @@ void fibtask_usleep(int usec){
 /* watchdog or timeout support                                         */
 /////////////////////////////////////////////////////////////////////////
 static inline int fibtask_watchdog_insert(FibTCB * the_tcb){
-	FibTCB * after = CHAIN_FIRST(&local_wadoglist);
-	int delta_interval = the_tcb->delta_interval;
-	for (;;after = CHAIN_NEXT(after, link)){
+    FibTCB * after = CHAIN_FIRST(&local_wadoglist);
+    int delta_interval = the_tcb->delta_interval;
+    for (;;after = CHAIN_NEXT(after, link)){
 
-		if (delta_interval == 0 || !CHAIN_NEXT(after, link)){ break; }
+        if (delta_interval == 0 || !CHAIN_NEXT(after, link)){ break; }
 
-		if (delta_interval < after->delta_interval) {
-			after->delta_interval -= delta_interval;
-			break;
-		}
+        if (delta_interval < after->delta_interval) {
+            after->delta_interval -= delta_interval;
+            break;
+        }
 
-		delta_interval -= after->delta_interval;
-	}
-	the_tcb->delta_interval = delta_interval;
-	CHAIN_INSERT_BEFORE(after, the_tcb, FibTCB, link);
-	return (0);
+        delta_interval -= after->delta_interval;
+    }
+    the_tcb->delta_interval = delta_interval;
+    CHAIN_INSERT_BEFORE(after, the_tcb, FibTCB, link);
+    return (0);
 }
 
 static inline int fibtask_watchdog_remove(FibTCB * the_tcb){
-	FibTCB * nxt_tcb = CHAIN_NEXT(the_tcb, link);
-	if (CHAIN_NEXT(nxt_tcb, link)){
-		nxt_tcb->delta_interval += the_tcb->delta_interval;
-	}
-	CHAIN_REMOVE(the_tcb, FibTCB, link);
+    FibTCB * nxt_tcb = CHAIN_NEXT(the_tcb, link);
+    if (CHAIN_NEXT(nxt_tcb, link)){
+        nxt_tcb->delta_interval += the_tcb->delta_interval;
+    }
+    CHAIN_REMOVE(the_tcb, FibTCB, link);
 
-	return (0);
+    return (0);
 }
 
 /* this functions ias called from thread maintask (scheduling task) */
 int fibtask_watchdog_tickle(int gap){
-	FibTCB * the_tcb, * the_nxt;
-	CHAIN_FOREACH_SAFE(the_tcb, &local_wadoglist, link, the_nxt){
-		if (the_tcb->delta_interval <= gap){
+    FibTCB * the_tcb, * the_nxt;
+    CHAIN_FOREACH_SAFE(the_tcb, &local_wadoglist, link, the_nxt){
+        if (the_tcb->delta_interval <= gap){
             CHAIN_REMOVE(the_tcb, FibTCB, link);
 
             /* make it ready */
             fibtask_clrstate(the_tcb, STATES_BLOCKED);
-		}
-		else{
-			the_tcb->delta_interval -= gap;
-			break;
-		}
-	}
+        }
+        else{
+            the_tcb->delta_interval -= gap;
+            break;
+        }
+    }
 
-	return (0);
+    return (0);
 }
 /////////////////////////////////////////////////////////////////////////

@@ -13,7 +13,7 @@ static inline bool fibtask_reregister_all_events(FibTCB * the_tcb);
 static __thread_local int epoll_fd = 0;
 static __thread_local struct epoll_event epoll_events[MAX_EPOLL_EVENTS_PER_THREAD];
 
-/* maintask should be the only task can call thread level blocking functions.
+/* maintask should be the only task can call thread level blocking functions (epoll)
  */ 
 static void * epoll_maintask(void * args){
     /* user initialization function */
@@ -78,13 +78,13 @@ static void * epoll_maintask(void * args){
 
 bool epoll_install_callbacks(FibTCB * the_task){
     fibtask_install_callbacks(
-    	the_task,
-    	fibtask_unregister_all_events,
-    	fibtask_reregister_all_events,
-    	NULL,
-    	NULL
-    	);
-    return true;	
+        the_task,
+        fibtask_unregister_all_events,
+        fibtask_reregister_all_events,
+        NULL,
+        NULL
+        );
+    return true;    
 }
 
 void * epoll_thread(void * args){
