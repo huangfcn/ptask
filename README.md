@@ -1,4 +1,4 @@
-# libfibtask
+# libfiber
 	
 	A compact stackful coroutines library (in C). Features:
 	1. Very compact, small code base
