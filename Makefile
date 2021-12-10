@@ -1,4 +1,4 @@
-LIB=lib/libfibtask.a
+LIB=lib/libfiber.a
 all: $(LIB) simplehttp generator
 
 AS=gcc -c
@@ -41,4 +41,4 @@ clean:
 
 install: $(LIB)
 	cp $(LIB) /usr/local/lib
-	cp $(INCFILES) /usr/local/include/fibtask
+	cp $(INCFILES) /usr/local/include/fiber

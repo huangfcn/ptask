@@ -107,11 +107,11 @@ struct FibTCB{
 /* 6. sched_yield                                                */
 ///////////////////////////////////////////////////////////////////
 /* called @ system startup */
-bool FibTaskGlobalStartup();
-bool FibTaskThreadStartup();
+bool FiberGlobalStartup();
+bool FiberThreadStartup();
 
 /* create a task */
-FibTCB * fibtask_create(
+FibTCB * fiber_create(
     void *(*func)(void *), 
     void * args, 
     void * stackaddr, 
@@ -121,37 +121,37 @@ FibTCB * fibtask_create(
 /* yield will yield control to other task
  * current task will suspend until resume called on it
  */
-FibTCB * fibtask_yield(uint64_t code);
-uint64_t fibtask_resume(FibTCB * the_task);
+FibTCB * fiber_yield(uint64_t code);
+uint64_t fiber_resume(FibTCB * the_task);
 
 /* identify current running task */
-FibTCB * fibtask_ident();
+FibTCB * fiber_ident();
 
 /* task usleep (accurate at ms level)*/
-void fibtask_usleep(int usec);
+void fiber_usleep(int usec);
 
 /* same functionality of sched_yield, yield the processor
  * sched_yield causes the calling task to relinquish the CPU.
  * The task is moved to the end of the ready queue and 
  * a new task gets to run.
  */
-FibTCB * fibtask_sched_yield();
+FibTCB * fiber_sched_yield();
 ///////////////////////////////////////////////////////////////////
 
 ///////////////////////////////////////////////////////////////////
 /* service thread maintask related functions                     */
 ///////////////////////////////////////////////////////////////////
 /* feed watchdog @ thread service maintask */
-int fibtask_watchdog_tickle(int gap);
+int fiber_watchdog_tickle(int gap);
 
 /* set thread maintask (thread scheduling task) */
-bool fibtask_set_thread_maintask(FibTCB * the_task);
+bool fiber_set_thread_maintask(FibTCB * the_task);
 
 /* wait for events (events bitmask in, wait for any/all, and timeout) */ 
-uint64_t fibtask_wait(uint64_t events_in, int options, int timeout);
+uint64_t fiber_wait(uint64_t events_in, int options, int timeout);
 
 /* post events to a task (tcb, events bitmask) */
-int fibtask_post(FibTCB * the_task, uint64_t events_in);
+int fiber_post(FibTCB * the_task, uint64_t events_in);
 ///////////////////////////////////////////////////////////////////
 
 //////////////////////////////////
@@ -166,19 +166,19 @@ void asm_taskmain(              );
 ///////////////////////////////////////////////////////////////////
 /* extensions                                                    */
 ///////////////////////////////////////////////////////////////////
-static inline bool fibtask_set_localdata(FibTCB * the_tcb, int index, uint64_t data){
+static inline bool fiber_set_localdata(FibTCB * the_tcb, int index, uint64_t data){
     if (index >= MAX_TASK_LOCALDATAS){return false;};
     the_tcb->taskLocalStorages[index] = data;
     return true;
 }
 
-static inline uint64_t fibtask_get_localdata(FibTCB * the_tcb, int index){
+static inline uint64_t fiber_get_localdata(FibTCB * the_tcb, int index){
     if (index >= MAX_TASK_LOCALDATAS){return 0ULL;};
 
     return the_tcb->taskLocalStorages[index];
 }
 
-static inline bool fibtask_install_callbacks(
+static inline bool fiber_install_callbacks(
     FibTCB * the_task,
     bool (*  preSwitchingThread)(FibTCB *),
     bool (* postSwitchingThread)(FibTCB *),

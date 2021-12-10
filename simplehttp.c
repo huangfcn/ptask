@@ -14,7 +14,7 @@
 
 #include <assert.h>
 
-#include "libfibtask.h"
+#include "libfiber.h"
 #include "epoll.h"
 
 static int create_and_bind(int port)
@@ -87,16 +87,16 @@ void * requestHandler(void* args)
         .tmpEventMasks =  0ULL,
         .ctxs = ctxs
     };
-    fibtask_set_localdata(fibtask_ident(), 0, (uint64_t)(&ctxcb));
-    epoll_install_callbacks(fibtask_ident());
+    fiber_set_localdata(fiber_ident(), 0, (uint64_t)(&ctxcb));
+    epoll_install_callbacks(fiber_ident());
 
     struct epoll_event events[MAXEVENTS];
-    fibtask_register_events(infd, EPOLLIN | EPOLLET);
+    fiber_register_events(infd, EPOLLIN | EPOLLET);
 
     /* The event loop */
     while (true)
     {
-        int n = fibtask_epoll_wait(events, MAXEVENTS, 2000);
+        int n = fiber_epoll_wait(events, MAXEVENTS, 2000);
         assert(n <= 1);
 
         if (n == 1) {
@@ -178,15 +178,15 @@ void* server(void* args)
         .tmpEventMasks =  0ULL,
         .ctxs = ctxs
     };
-    fibtask_set_localdata(fibtask_ident(), 0, (uint64_t)(&ctxcb));
-    epoll_install_callbacks(fibtask_ident());
+    fiber_set_localdata(fiber_ident(), 0, (uint64_t)(&ctxcb));
+    epoll_install_callbacks(fiber_ident());
 
-    fibtask_register_events(sfd, EPOLLIN | EPOLLET);
+    fiber_register_events(sfd, EPOLLIN | EPOLLET);
 
     /* The event loop */
     while (1)
     {
-        int n = fibtask_epoll_wait(events, MAXEVENTS, 1000);
+        int n = fiber_epoll_wait(events, MAXEVENTS, 1000);
         assert(n <= 1);
 
         if (n == 1){
@@ -223,7 +223,7 @@ void* server(void* args)
                         }
                     }
                     else{
-                        fibtask_create(requestHandler, (void*)((int64_t)infd), NULL, 8192 * 2);
+                        fiber_create(requestHandler, (void*)((int64_t)infd), NULL, 8192 * 2);
                     }
                 }
             }
@@ -237,7 +237,7 @@ void* server(void* args)
 
 
 bool initializeTask(void* args) {
-    fibtask_create(server, args, NULL, 8192 * 2);
+    fiber_create(server, args, NULL, 8192 * 2);
     return true;
 }
 
@@ -248,7 +248,7 @@ int main(int argc, char* argv[])
         exit(EXIT_FAILURE);
     }
 
-    FibTaskGlobalStartup();
+    FiberGlobalStartup();
 
     int64_t portnum = atoi(argv[1]);
     fibthread_args_t args = {
