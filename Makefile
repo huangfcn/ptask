@@ -1,5 +1,5 @@
 LIB=lib/libfibtask.a
-all: $(LIB) simplehttp
+all: $(LIB) simplehttp generator
 
 AS=gcc -c
 CC=gcc
@@ -23,8 +23,11 @@ $(LIB): context.o task.o epoll.o
 simplehttp: simplehttp.o $(LIB)
 	$(CC) -o simplehttp simplehttp.o $(LIB)
 
+generator: generator.o $(LIB)
+	$(CC) -o generator generator.o $(LIB)
+
 clean:
-	rm -f *.o simplehttp $(LIB)
+	rm -f *.o simplehttp generator $(LIB)
 
 install: $(LIB)
 	cp $(LIB) /usr/local/lib
