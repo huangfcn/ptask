@@ -610,6 +610,13 @@ int fibtask_post(FibTCB * the_task, uint64_t events_in){
     if (seized_events && ((seized_events == the_task->waitingEvents) || (the_task->waitingOptions & TASK_EVENT_WAIT_ANY))){
         the_task->pendingEvents &= (~seized_events);
         the_task->seizedEvents = seized_events;
+
+        /* extract from watchdog list if needed */
+        if (likely(the_task->state & STATES_WAIT_TIMEOUTB)){
+            fibtask_watchdog_remove(the_task);
+        }
+
+        /* clear WAITFOR_EVENT and WAIT_TIMEOUTB sytates */
         fibtask_clrstate(the_task, (STATES_WAITFOR_EVENT | STATES_WAIT_TIMEOUTB));
     }
     return (0);
