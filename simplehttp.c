@@ -105,7 +105,7 @@ void * requestHandler(void* args)
                 (!(events[i].events & EPOLLIN))) {
                 /* An error has occured on this fd, or the socket is not
                  * ready for reading (why were we notified then?) */
-                fprintf(stderr, "epoll error. events=%u\n", events[i].events);
+                printf("epoll error. events=%u\n", events[i].events);
                 close(events[i].data.fd);
                 break;
             }

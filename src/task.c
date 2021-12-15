@@ -1090,7 +1090,7 @@ static void * fiber_scheduler(void * args){
                     {
                         FibTCB * the_task = (FibTCB *)(msg.data);
                         uint64_t events  = msg.valu;
-
+                        // printf("scheduler: %p events %04x\n", the_task, events);
                         fiber_event_post(the_task, events);
                     }
                     break;
@@ -1134,7 +1134,7 @@ static void * fiber_scheduler(void * args){
             }
         }
 
-        /* sleep or yield */
+        /* sleep if only schediuler ready to run otherwise yield */
         if (_CHAIN_FIRST(&local_readylist) == _CHAIN_LAST(&local_readylist)) {
             __usleep__(10);
         }

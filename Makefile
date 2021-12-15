@@ -3,7 +3,7 @@ all: $(LIB) simplehttp generator
 
 AS=gcc -c
 CC=gcc
-CFLAGS=-Wall -c -Iinclude -g
+CFLAGS=-Wall -c -Iinclude -g -D__SCHEDULER_USING_BLOCKQ__
 
 INCFILES=include/task.h      \
          include/chain.h     \

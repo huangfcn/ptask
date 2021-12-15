@@ -28,7 +28,7 @@ static int64_t fiber_epoll(int fd, volatile bool * bQuit){
 
             ctx->events_o = epoll_events[i].events;
             pcb->tmpEventMasks |= (1 << (ctx->index));
-            printf("Event: fd = %d, tcb = %p\n", ctx->fd, ctx->tcb);
+            // printf("Event: fd = %d, tcb = %p, events = %04x\n", ctx->fd, ctx->tcb, ctx->events_o);
         }
 
         /* post events */
