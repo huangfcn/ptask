@@ -1052,10 +1052,6 @@ RBQ_PROTOTYPE_STATIC(schedmsgq, schedmsgnode_t, copymsg, __usleep__, 16);
 #endif
 
 __thread_local schedmsgq_t schedmsgq;
-
-/* disable gcc optimization, really calling into the function! */
-static FibTCB * (*__sched_yield)();
-
 static void * fiber_scheduler(void * args){
     /* user initialization function */
     fibthread_args_t * pargs = (fibthread_args_t *)args;
@@ -1153,7 +1149,6 @@ void * pthread_scheduler(void * args){
     FiberThreadStartup();
 
     schedmsgq_init(&schedmsgq);
-    __sched_yield = fiber_sched_yield;
 
     /* one service thread joined */
     mServiceThreads += 1;
