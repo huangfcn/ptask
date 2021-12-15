@@ -88,11 +88,9 @@ void * requestHandler(void* args)
         .ctxs = ctxs
     };
     fiber_set_localdata(fiber_ident(), 0, (uint64_t)(&ctxcb));
-    epoll_install_callbacks(fiber_ident());
-
-    struct epoll_event events[MAXEVENTS];
     fiber_epoll_register_events(infd, EPOLLIN | EPOLLET);
 
+    struct epoll_event events[MAXEVENTS];
     /* The event loop */
     while (true)
     {
@@ -179,8 +177,6 @@ void* server(void* args)
         .ctxs = ctxs
     };
     fiber_set_localdata(fiber_ident(), 0, (uint64_t)(&ctxcb));
-    epoll_install_callbacks(fiber_ident());
-
     fiber_epoll_register_events(sfd, EPOLLIN | EPOLLET);
 
     /* The event loop */
@@ -241,6 +237,7 @@ bool initializeTask(void* args) {
     return true;
 }
 
+#include <pthread.h>
 int main(int argc, char* argv[])
 {
     if (argc != 2) {
@@ -250,13 +247,16 @@ int main(int argc, char* argv[])
 
     FiberGlobalStartup();
 
+    /* create epoll thread & let it run first */
+    pthread_t tid; bool bQuit = false;
+    pthread_create(&tid, NULL, pthread_epoll, (void *)(&bQuit)); sleep(1);
+
+    /* run another thread */
     int64_t portnum = atoi(argv[1]);
     fibthread_args_t args = {
       .init_func = initializeTask,
       .args = (void *)(portnum),
     };
-
-    epoll_thread(&args);
-
+    pthread_scheduler(&args);
     return 0;
 }

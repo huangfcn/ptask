@@ -6,31 +6,16 @@
 
 #include "timestamp.h"
 
-static inline bool fiber_epoll_unregister_all_events(FibTCB * the_tcb);
-static inline bool fiber_epoll_reregister_all_events(FibTCB * the_tcb);
-
 /* epoll specific data */
-static __thread_local int epoll_fd = 0;
-static __thread_local struct epoll_event epoll_events[MAX_EPOLL_EVENTS_PER_THREAD];
+static int epoll_fd = 0;
+static struct epoll_event epoll_events[MAX_EPOLL_EVENTS_PER_THREAD];
 
 /* maintask should be the only task can call thread level blocking functions (epoll)
  */ 
-static void * epoll_maintask(void * args){
-    /* user initialization function */
-    fibthread_args_t * pargs = (fibthread_args_t *)args;
-    if (!pargs->init_func(pargs->args)){
-        // pthread_exit(-1);
-        return ((void *)(0));
-    }
-
-    /* increase number of service threads in system */
-    // FAA(&mServiceThreads);
-
-    uint64_t prev_stmp = _utime();
-    /* running thread level epoll & scheduling */
-    while (true){
+static int64_t fiber_epoll(int fd, volatile bool * bQuit){
+    while (!bQuit[0]){
         /* call epoll */
-        int rc = epoll_wait(epoll_fd, epoll_events, MAX_EPOLL_EVENTS_PER_THREAD, 10);
+        int rc = epoll_wait(fd, epoll_events, MAX_EPOLL_EVENTS_PER_THREAD, 10);
         if (unlikely(rc < 0)){
             /* fatal error */
             continue;
@@ -55,55 +40,25 @@ static void * epoll_maintask(void * args){
                 continue;
             }
 
-            fiber_post(ctx->tcb, pcb->tmpEventMasks);
+            fiber_send_message_internal(
+                ctx->tcb, 
+                MSG_TYPE_SCHEDULER,
+                MSG_CODE_POSTEVENT,
+                NULL,
+                pcb->tmpEventMasks
+                );
+
             pcb->tmpEventMasks = 0ULL;
         }
-
-        /* fire watchdogs */
-        uint64_t curr_stmp = _utime();
-        uint64_t curr_gapp = curr_stmp - prev_stmp;
-        fiber_watchdog_tickle(curr_gapp);
-        prev_stmp = curr_stmp;
-
-        /* yield control to other tasks in thread */
-        fiber_sched_yield();
     }
-    
-    /* decrease number of service threads in system */
-    // FAA(&mServiceThreads);
 
-    // pthread_exit(0);
-    return ((void *)(0));
+    return (0LL);
 }
 
-bool epoll_install_callbacks(FibTCB * the_task){
-    fiber_install_callbacks(
-        the_task,
-        fiber_epoll_unregister_all_events,
-        fiber_epoll_reregister_all_events,
-        NULL,
-        NULL
-        );
-    return true;    
-}
-
-void * epoll_thread(void * args){
-    /* initialize thread environment */
-    FiberThreadStartup();
-
+void * pthread_epoll(void * args){
     epoll_fd = epoll_create1(EPOLL_CLOEXEC);
-
-    /* create maintask (reuse thread's stack) */
-    struct {} C;
-    FibTCB * the_task = fiber_create(epoll_maintask, args, (void *)(&C), 0UL);
-
-    /* set current task to maintask & switch to it */
-    goto_contxt2(&(the_task->regs));
-
-    /* never return here */
-    return ((void *)(0));
+    return (void *)fiber_epoll(epoll_fd, (bool *)args);
 }
-
 
 /////////////////////////////////////////////////////////////////////////
 /* Macro Loop on Set Bit                                               */
@@ -194,34 +149,14 @@ static inline int fiber_epoll_polling_events(
     return n;
 }
 
-static inline bool fiber_epoll_unregister_all_events(FibTCB * the_tcb){
+int fiber_epoll_unregister_event(FibTCB * the_tcb, int p){
     EventContextControlBlock * pcb = (EventContextControlBlock *)fiber_get_localdata(the_tcb, 0);
-    uint64_t mask = (~(pcb->usedEventMask));
-    #define callback_unreg(p) do {                                      \
-        epoll_ctl(                                                      \
-            epoll_fd, EPOLL_CTL_DEL,                                    \
-            pcb->ctxs[p].fd, NULL                                       \
-            );                                                          \
-    } while(0)
+    epoll_ctl(                  
+        epoll_fd, EPOLL_CTL_DEL,
+        pcb->ctxs[p].fd, NULL   
+        );     
+    pcb->usedEventMask |= (1ULL << p);                 
 
-    callback_on_setbit(mask, callback_unreg);
-    return (0);
-}
-
-static inline bool fiber_epoll_reregister_all_events(FibTCB * the_tcb){
-    EventContextControlBlock * pcb = (EventContextControlBlock *)fiber_get_localdata(the_tcb, 0);
-    uint64_t mask = (~(pcb->usedEventMask));
-    #define callback_rereg(p) do {                                      \
-        struct epoll_event event;                                       \
-        event.data.ptr = (void *)(&(pcb->ctxs[p]));                     \
-        event.events   = pcb->ctxs[p].events_i;                         \
-        epoll_ctl(                                                      \
-            epoll_fd, EPOLL_CTL_ADD,                                    \
-            pcb->ctxs[p].fd, &event                                     \
-            );                                                          \
-    } while(0)
-
-    callback_on_setbit(mask, callback_rereg);
     return (0);
 }
 
@@ -231,7 +166,7 @@ int fiber_epoll_wait(
     int timeout_in_ms
 ){
     FibTCB * the_task = fiber_ident();
-    uint64_t mask = fiber_wait(~0ULL, TASK_EVENT_WAIT_ANY, timeout_in_ms * 1000);
+    uint64_t mask = fiber_event_wait(~0ULL, TASK_EVENT_WAIT_ANY, timeout_in_ms * 1000);
     return fiber_epoll_polling_events(the_task, mask, events);
 }
 /////////////////////////////////////////////////////////////////////////

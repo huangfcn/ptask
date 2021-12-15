@@ -1,6 +1,11 @@
 #ifndef __LIBFIB_TASK_H__
 #define __LIBFIB_TASK_H__
 
+#include "sysdef.h"
+#include "rbqb.h"
+#include "chain.h"
+#include "spinlock.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -26,11 +31,15 @@ extern "C" {
 #define STATES_IN_USLEEP       (0x00004) /* waiting for resume  */
 #define STATES_WAIT_TIMEOUTB   (0x00008) /* wait for timeout    */
 #define STATES_WAITFOR_EVENT   (0x00010) /* wait for event      */
+#define STATES_WAITFOR_MUTEX   (0x00020) /* wait for event      */
+#define STATES_WAITFOR_SEMA    (0x00040) /* wait for event      */
 
 #define STATES_BLOCKED         (STATES_SUSPENDED     |    \
                                 STATES_IN_USLEEP     |    \
                                 STATES_WAIT_TIMEOUTB |    \
-                                STATES_WAITFOR_EVENT )
+                                STATES_WAITFOR_EVENT |    \
+                                STATES_WAITFOR_MUTEX |    \
+                                STATES_WAITFOR_SEMA  )
 
 /* user provied stack */
 #define MASK_SYSTEM_STACK      (0x00001)
@@ -40,6 +49,9 @@ extern "C" {
 
 struct FibTCB;
 typedef struct FibTCB FibTCB;
+
+struct FibSCP;
+typedef struct FibSCP FibSCP;
 
 typedef struct FibCTX{
     uint64_t    reg_r12;    // 0
@@ -52,6 +64,8 @@ typedef struct FibCTX{
     uint64_t    reg_rbx;    // 48
     uint64_t    reg_rbp;    // 56
 } FibCTX;
+
+typedef CHAIN_HEAD(fibtcb_chain, FibTCB) fibtcb_chain_t;
 
 struct FibTCB{
     /* ready / suspend / free queue */
@@ -81,6 +95,9 @@ struct FibTCB{
     uint64_t  waitingEvents;
     uint64_t  seizedEvents;
 
+    /* thread message queue associated with this task */
+    FibTCB *  scheduler;
+    FibSCP *  scheddata;
     /* Task Local Storage */
     uint64_t  taskLocalStorages[MAX_TASK_LOCALDATAS];
 
@@ -95,6 +112,49 @@ struct FibTCB{
     /* CPU switching context */
     FibCTX regs;
 };
+
+struct freelist_t;
+typedef struct freelist_t freelist_t;
+
+struct schedmsgq_t;
+typedef struct schedmsgq_t schedmsgq_t;
+
+struct FibSCP {
+    FibTCB      *  taskonrun;
+    schedmsgq_t *  schedmsgq;
+    freelist_t  *  freedlist;
+    fibtcb_chain_t blocklist;
+    fibtcb_chain_t readylist;
+
+    fibtcb_chain_t wadoglist;
+
+    int            freedlist_size;
+    int            readylist_size;
+
+    struct {
+        void *   stackbase;
+        uint32_t stacksize;
+    } cached_stack[8];
+    uint32_t cached_stack_mask;
+};
+
+typedef struct FiberMutex {
+    volatile uint64_t holder;
+    volatile uint32_t reentries;
+
+    spinlock       qlock;
+    fibtcb_chain_t waitq;
+} FibMutex;
+
+typedef struct FiberSemaphore {
+    volatile int64_t count;
+
+    spinlock       qlock;
+    fibtcb_chain_t waitq;
+} FibSemaphore;
+
+typedef FibMutex fiber_mutex_t;
+typedef FibSemaphore fiber_sem_t;
 
 ///////////////////////////////////////////////////////////////////
 /* coroutine lib standard APIs:                                  */
@@ -136,6 +196,9 @@ void fiber_usleep(int usec);
  * a new task gets to run.
  */
 FibTCB * fiber_sched_yield();
+
+/* scheduler thread */
+void * pthread_scheduler(void * args);
 ///////////////////////////////////////////////////////////////////
 
 ///////////////////////////////////////////////////////////////////
@@ -147,11 +210,23 @@ int fiber_watchdog_tickle(int gap);
 /* set thread maintask (thread scheduling task) */
 bool fiber_set_thread_maintask(FibTCB * the_task);
 
-/* wait for events (events bitmask in, wait for any/all, and timeout) */ 
-uint64_t fiber_wait(uint64_t events_in, int options, int timeout);
+/* wait for events (events bitmask in, wait for any/all, and timeout) 
+   post event to a task
+*/ 
+uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout);
+int      fiber_event_post(FibTCB * the_task, uint64_t events_in);
 
-/* post events to a task (tcb, events bitmask) */
-int fiber_post(FibTCB * the_task, uint64_t events_in);
+/* mutex APIs */
+int  fiber_mutex_init(FibMutex * pmutex);
+bool fiber_mutex_lock(FibMutex * pmutex);
+bool fiber_mutex_unlock(FibMutex * pmutex);
+bool fiber_mutex_destroy(FibMutex * pmtx);
+
+/* sempahore APIs */
+int  fiber_sem_init(FibSemaphore * psem, int initval);
+bool fiber_sem_wait(FibSemaphore * psem);
+bool fiber_sem_post(FibSemaphore * psem);
+bool fiber_sem_destroy(FibSemaphore * psem);
 ///////////////////////////////////////////////////////////////////
 
 //////////////////////////////////
@@ -163,19 +238,50 @@ void goto_contxt2(void *        );
 void asm_taskmain(              );
 //////////////////////////////////
 
+typedef struct fibthread_args_s {
+    bool (*init_func)(void *);
+    void * args;
+} fibthread_args_t;
+
+///////////////////////////////////////////////////////////////////
+/* message queue of each service thread                          */
+///////////////////////////////////////////////////////////////////
+#define MSG_TYPE_SCHEDULER       (0x00000001)
+#define MSG_TYPE_USERPOSTD       (0xF0000000)
+
+// scheduler
+#define MSG_CODE_ACTIVATED       (0x00000001)
+#define MSG_CODE_POSTEVENT       (0x00000002)
+
+int fiber_send_message_internal(
+    FibTCB * the_task, 
+    uint32_t type, 
+    uint32_t msg, 
+    void   * user, 
+    uint64_t valu
+);
+
+int fiber_send_message(
+    FibTCB * the_task,
+    uint32_t msg, 
+    void   * user, 
+    uint64_t valu
+);
+///////////////////////////////////////////////////////////////////
+
 ///////////////////////////////////////////////////////////////////
 /* extensions                                                    */
 ///////////////////////////////////////////////////////////////////
-static inline bool fiber_set_localdata(FibTCB * the_tcb, int index, uint64_t data){
+static inline bool fiber_set_localdata(FibTCB * the_task, int index, uint64_t data){
     if (index >= MAX_TASK_LOCALDATAS){return false;};
-    the_tcb->taskLocalStorages[index] = data;
+    the_task->taskLocalStorages[index] = data;
     return true;
 }
 
-static inline uint64_t fiber_get_localdata(FibTCB * the_tcb, int index){
+static inline uint64_t fiber_get_localdata(FibTCB * the_task, int index){
     if (index >= MAX_TASK_LOCALDATAS){return 0ULL;};
 
-    return the_tcb->taskLocalStorages[index];
+    return the_task->taskLocalStorages[index];
 }
 
 static inline bool fiber_install_callbacks(

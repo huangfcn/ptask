@@ -5,9 +5,10 @@
 #include <pthread.h>
 typedef pthread_mutex_t spinlock;
 
-#define spin_init(pmutex) pthread_mutex_init(pmutex, NULL)
-#define spin_lock(pmutex) pthread_mutex_lock(pmutex)
-#define spin_unlock(pmtx) pthread_mutex_unlock(pmtx)
+#define spin_init(pmutex)  pthread_mutex_init(pmutex, NULL)
+#define spin_lock(pmutex)  pthread_mutex_lock(pmutex)
+#define spin_unlock(pmtx)  pthread_mutex_unlock(pmtx)
+#define spin_destroy(pmtx) pthread_mutex_destroy(pmtx)
 
 #else
 
@@ -58,6 +59,10 @@ SPINLOCK_ATTR void spin_unlock(spinlock *s)
 }
 
 #define SPINLOCK_INITIALIZER { 0 }
+
+SPINLOCK_ATTR void spin_destroy(spinlock *s){
+    ;
+}
 
 #ifdef __cplusplus
 };

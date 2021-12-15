@@ -31,10 +31,10 @@ $(LIB): context.o task.o epoll.o
 	ar rvc $(LIB) context.o task.o epoll.o
 
 simplehttp: simplehttp.o $(LIB)
-	$(CC) -o simplehttp simplehttp.o $(LIB)
+	$(CC) -o simplehttp simplehttp.o $(LIB) -lpthread
 
 generator: generator.o $(LIB)
-	$(CC) -o generator generator.o $(LIB)
+	$(CC) -o generator generator.o $(LIB) -lpthread
 
 clean:
 	rm -f *.o simplehttp generator $(LIB)

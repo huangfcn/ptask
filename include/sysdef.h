@@ -186,6 +186,9 @@ extern "C" {
 #define CAS32(ptr, oldval, newval ) __sync_bool_compare_and_swap(ptr, oldval, newval)
 #define CAS64(ptr, oldval, newval ) __sync_bool_compare_and_swap(ptr, oldval, newval)
 
+#define CAS32V(ptr, oldval, newval ) __sync_val_compare_and_swap(ptr, oldval, newval)
+#define CAS64V(ptr, oldval, newval ) __sync_val_compare_and_swap(ptr, oldval, newval)
+
 #define FAA(ptr)                    __sync_fetch_and_add((ptr), 1)
 #define FAS(ptr)                    __sync_fetch_and_sub((ptr), 1)
 

@@ -39,17 +39,15 @@ int fiber_epoll_wait(
 ///////////////////////////////////////////////////////////////////
 
 ///////////////////////////////////////////////////////////////////
-typedef struct fibthread_args_s {
-    bool (*init_func)(void *);
-    void * args;
-} fibthread_args_t;
-
 /* thread entrypoint for those threads working as service 
  * thread for fibtasks. 
  * it will call init_func with args @ thread startup
  */
-void * epoll_thread(void * args);
-bool   epoll_install_callbacks(FibTCB * the_task);
+typedef struct epoll_param_t {
+    int    epoll_fd;
+    bool * bQuit;
+} epoll_param_t;
+void * pthread_epoll(void *);
 ///////////////////////////////////////////////////////////////////
 
 #ifdef __cplusplus
