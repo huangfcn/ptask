@@ -32,7 +32,7 @@ extern "C" {
  *  be used to compose and manipulate a thread's state.
  */
 #define STATES_READY           (0x00000) /* ready to run        */
-#define STATES_DORMANT         (0x00001) /* created not started */
+#define STATES_TRANSIENT       (0x00001) /* off the queue       */
 #define STATES_SUSPENDED       (0x00002) /* waiting for resume  */
 #define STATES_IN_USLEEP       (0x00004) /* waiting for resume  */
 #define STATES_WAIT_TIMEOUTB   (0x00008) /* wait for timeout    */
@@ -86,7 +86,7 @@ struct FibTCB{
     uint32_t  stacksize;
 
     /* task state (READY/SUSPEND/SLEEP/WAIT) */
-    uint32_t  state;
+    uint32_t state;
 
     /*  yieldCode / exitCode */
     uint64_t  yieldCode;
@@ -104,6 +104,9 @@ struct FibTCB{
     /* thread message queue associated with this task */
     FibTCB *  scheduler;
     FibSCP *  scheddata;
+
+    uint64_t  waitingObject;
+
     /* Task Local Storage */
     uint64_t  taskLocalStorages[MAX_TASK_LOCALDATAS];
 
@@ -171,9 +174,9 @@ typedef struct FibMsgQ {
     FibSemaphore semData;
 } FibMsgQ;
 
-typedef FibMutex fiber_mutex_t;
+typedef FibMutex     fiber_mutex_t;
 typedef FibSemaphore fiber_sem_t;
-typedef FibMsgQ fiber_msgq_t;
+typedef FibMsgQ      fiber_msgq_t;
 
 ///////////////////////////////////////////////////////////////////
 /* coroutine lib standard APIs:                                  */
@@ -244,11 +247,17 @@ bool fiber_mutex_destroy(FibMutex * pmtx);
 /* sempahore APIs */
 int  fiber_sem_init(FibSemaphore * psem, int initval);
 bool fiber_sem_wait(FibSemaphore * psem);
+bool fiber_sem_timedwait(FibSemaphore * psem, int timeout);
 bool fiber_sem_post(FibSemaphore * psem);
 bool fiber_sem_destroy(FibSemaphore * psem);
 
 /* message queue */
-bool fiber_msgq_init(FibMsgQ * pq, int qsize, int dsize, void (*copydatafunc)(void *, const void *));
+bool fiber_msgq_init(
+    FibMsgQ * pq, 
+    int       qsize, 
+    int       dsize, 
+    void   (* copydatafunc)(void *, const void *)
+    );
 bool fiber_msgq_push(FibMsgQ * pq, const void * data);
 bool fiber_msgq_pop(FibMsgQ * pq, void * data);
 bool fiber_msgq_destroy(FibMsgQ * pq);

@@ -716,8 +716,33 @@ int fiber_watchdog_tickle(int gap){
         if (the_task->delta_interval <= gap){
             CHAIN_REMOVE(the_task, FibTCB, link);
 
-            /* make it ready */
-            fiber_clrstate(the_task, STATES_BLOCKED);
+            /* make state be volatile (it may get changed in other thread) */
+            volatile uint32_t * pstate = &(the_task->state);
+            if ((*pstate) & STATES_WAITFOR_SEMA){
+                FibSemaphore * psem = (FibSemaphore *)(the_task->waitingObject);
+                spin_lock(&(psem->qlock));
+                if ((*pstate) & STATES_TRANSIENT){
+                    /* extracted from waitq by another thread 
+                     * do nothing now
+                     */
+                    spin_unlock(&(psem->qlock));
+                }
+                else{
+                    /* extract from semaphore's waiting q */
+                    _CHAIN_REMOVE(the_task);
+                    spin_unlock(&(psem->qlock));
+
+                    /* insert into blocklist & clear state */
+                    _CHAIN_INSERT_TAIL(&local_blocklist, the_task);
+
+                    /* make it ready */
+                    fiber_clrstate(the_task, STATES_BLOCKED);
+                }
+            }
+            else{
+                /* make it ready */
+                fiber_clrstate(the_task, STATES_BLOCKED);
+            }
         }
         else{
             the_task->delta_interval -= gap;
@@ -866,7 +891,56 @@ bool fiber_sem_wait(FibSemaphore * psem){
     /* set state */
     the_task->state |= STATES_WAITFOR_SEMA;
 
+    /* set waiting object */
+    the_task->waitingObject = (uint64_t)(psem);
+
     spin_unlock(&(psem->qlock));
+
+    /* schedule to another task */
+    fiber_sched();
+    return true;
+}
+
+bool fiber_sem_timedwait(FibSemaphore * psem, int timeout){
+    FibTCB * the_task = current_task;
+
+    /* put onto semaphore's waiting list */
+    spin_lock(&(psem->qlock));
+
+    /* decrease the resource count */
+    --psem->count;
+
+    /* check resource count again once locked */
+    if (psem->count >= 0){
+        spin_unlock(&(psem->qlock));
+        return true;
+    }
+
+    if (timeout == 0){
+        ++psem->count;
+        spin_unlock(&(psem->qlock));
+        return false;
+    }
+
+    /* extract from local ready list */
+    _CHAIN_REMOVE(the_task);
+
+    /* insert into semaphore's waitq */
+    _CHAIN_INSERT_TAIL(&(psem->waitq), the_task);
+
+    /* set state */
+    the_task->state |= (((timeout > 0) ? STATES_WAIT_TIMEOUTB : 0) | STATES_WAITFOR_SEMA);
+
+    /* set waiting object */
+    the_task->waitingObject = (uint64_t)(psem);
+    
+    spin_unlock(&(psem->qlock));
+
+    /* put into watchdog waiting list */
+    if (timeout > 0){
+        the_task->delta_interval = timeout;
+        fiber_watchdog_insert(the_task);
+    }
 
     /* schedule to another task */
     fiber_sched();
@@ -889,6 +963,10 @@ bool fiber_sem_post(FibSemaphore * psem){
         return true;
     }
 
+    /* the task is on transient now */
+    volatile uint32_t * pstate = &(the_first->state);
+    *pstate |= STATES_TRANSIENT;
+
     /* unlock & switch holder */
     spin_unlock(&(psem->qlock));
 
@@ -897,7 +975,10 @@ bool fiber_sem_post(FibSemaphore * psem){
         _CHAIN_INSERT_TAIL(&(local_blocklist), the_first);
 
         /* clear the block state */
-        fiber_clrstate(the_first, STATES_WAITFOR_SEMA);
+        fiber_clrstate(
+            the_first, 
+            STATES_WAITFOR_SEMA | STATES_TRANSIENT | STATES_WAIT_TIMEOUTB
+            );
         return (true);
     }
     else{
@@ -907,7 +988,7 @@ bool fiber_sem_post(FibSemaphore * psem){
             MSG_TYPE_SCHEDULER,
             MSG_CODE_ACTIVATED,
             (void *)psem, 
-            STATES_WAITFOR_SEMA
+            STATES_WAITFOR_SEMA | STATES_TRANSIENT | STATES_WAIT_TIMEOUTB
             );
     }
 }
@@ -1029,8 +1110,10 @@ static void * fiber_scheduler(void * args){
                     uint64_t mask     = msg.valu;
 
                     if (the_task->state & mask){
-                        /* put into ready list & clear the state */
+                        /* put into local block list & clear the state */
                         _CHAIN_INSERT_TAIL(&local_blocklist, the_task);
+
+                        /* clear block state, make it ready */
                         fiber_clrstate(the_task, mask);
                     }
                 }
