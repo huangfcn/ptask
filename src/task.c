@@ -937,8 +937,8 @@ typedef struct _schedmsgnode_t {
    (to)->valu = (from)->valu;   \
 } while (0)
 
-#ifdef __SCHEDULER_USING_LOCKQ__
-RBQ_PROTOTYPE_STATIC(schedmsgq, schedmsgnode_t, copymsg, 10000ULL, 16);
+#ifdef __SCHEDULER_USING_BLOCKQ__
+RBQ_PROTOTYPE_STATIC(schedmsgq, schedmsgnode_t, copymsg, 10000ULL,   16);
 #else
 RBQ_PROTOTYPE_STATIC(schedmsgq, schedmsgnode_t, copymsg, __usleep__, 16);
 #endif
@@ -959,7 +959,7 @@ static void * fiber_scheduler(void * args){
     schedmsgnode_t msg;
     while (true){
         if (!schedmsgq_pop(&schedmsgq, &msg)){
-            __usleep__(10LL);
+            __usleep__(10);
 
             /* fire watchdogs */
             uint64_t curr_stmp = _utime();
