@@ -2,7 +2,13 @@
 #define __LIBFIB_TASK_H__
 
 #include "sysdef.h"
+
+#ifdef __SCHEDULER_USING_LOCKQ__
 #include "rbqb.h"
+#else
+#include "rbqa.h"
+#endif
+
 #include "chain.h"
 #include "spinlock.h"
 

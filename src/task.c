@@ -3,6 +3,9 @@
 #include <assert.h>
 #include <stdio.h>
 
+#include <semaphore.h>
+#include <errno.h>
+
 #include "sysdef.h"
 #include "spinlock.h"
 
@@ -10,6 +13,7 @@
 #include "task.h"
 
 #include "timestamp.h"
+
 
 static inline int fiber_watchdog_insert(FibTCB * the_task);
 static inline int fiber_watchdog_remove(FibTCB * the_task);
@@ -54,6 +58,8 @@ static volatile uint64_t global_cached_stack_mask;
 static spinlock spinlock_cached_stack;
 
 static volatile int64_t mServiceThreads = 0, nGlobalFibTasks = 0;
+
+static sem_t __sem_null;
 
 /////////////////////////////////////////////////////////////////////////
 /* Macro Loop on Set Bit                                               */
@@ -106,6 +112,9 @@ bool FiberGlobalStartup(){
     global_cached_stack_mask = ~0ULL;
     spin_init(&spinlock_cached_stack);
 
+    /* create a null semaphore for timeout */
+    sem_init(&__sem_null, 0, 0);
+
     return true;
 };
 
@@ -124,6 +133,24 @@ bool FiberThreadStartup(){
     local_cached_stack_mask = 0xFF;
     return true;
 };
+
+static inline int __usleep__(int64_t us)    
+{                                                  
+    struct timespec ts; int s;                     
+    if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {
+        return false;                              
+    }                                              
+                                                                     
+    /* add 10ms */                                               
+    ts.tv_nsec += us * 1000ULL;                                  
+    ts.tv_sec += ts.tv_nsec / 1000000000ULL;                     
+    ts.tv_nsec %= 1000000000ULL;                                 
+    while ((s = sem_timedwait(&__sem_null, &ts)) == -1 && errno == EINTR){
+        continue;       /* Restart if interrupted by handler */  
+    }
+
+    return (s == 0) ? (0) : ((errno == ETIMEDOUT) ? (+1) : (-1));
+}
 /////////////////////////////////////////////////////////////////////////
 
 /////////////////////////////////////////////////////////////////////////
@@ -910,7 +937,11 @@ typedef struct _schedmsgnode_t {
    (to)->valu = (from)->valu;   \
 } while (0)
 
+#ifdef __SCHEDULER_USING_LOCKQ__
 RBQ_PROTOTYPE_STATIC(schedmsgq, schedmsgnode_t, copymsg, 10000ULL, 16);
+#else
+RBQ_PROTOTYPE_STATIC(schedmsgq, schedmsgnode_t, copymsg, __usleep__, 16);
+#endif
 
 __thread_local schedmsgq_t schedmsgq;
 
@@ -928,6 +959,8 @@ static void * fiber_scheduler(void * args){
     schedmsgnode_t msg;
     while (true){
         if (!schedmsgq_pop(&schedmsgq, &msg)){
+            __usleep__(10LL);
+
             /* fire watchdogs */
             uint64_t curr_stmp = _utime();
             uint64_t curr_gapp = curr_stmp - prev_stmp;
