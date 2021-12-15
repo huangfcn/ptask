@@ -462,40 +462,20 @@ FibTCB * fiber_ident(){
 /* schedule to next task                                               */
 /////////////////////////////////////////////////////////////////////////
 static inline void fiber_sched(){
+
     /* find next ready task */
     FibTCB * next_task = NULL, * the_task = current_task;
-    while (true) {
+    {
         /* only get a task from local if possible */
         next_task = _CHAIN_FIRST(&local_readylist);
         if (likely(next_task != the_task)){
             _CHAIN_REMOVE(next_task);
-
-            break;
         }
-
-        if (nLocalFibTasks < ((nGlobalFibTasks + mServiceThreads - 1) / mServiceThreads)){
-            /* get a task from global too few tasks running locally */
-            spin_lock(&spinlock_readylist);
-            next_task = _CHAIN_EXTRACT_FIRST(&global_readylist);
-            spin_unlock(&spinlock_readylist);
-
-            if (likely(next_task != NULL)){
-                /* one more task in local system */
-                nLocalFibTasks += 1;
-
-                /* call the callback after switching thread */
-                if (next_task->postSwitchingThread){
-                    next_task->postSwitchingThread(next_task);
-                }
-                break;
-            }
-        }
-
-        /* cannot find a candidate, 
-           if and only if called from maintask and only maintask running,
-           go back to epoll 
-         */
-        if (current_task == the_maintask){
+        else{
+            /* cannot find a candidate, 
+               if and only if called from maintask and only maintask running,
+               go back to epoll 
+             */
             return;
         }
     };
@@ -582,7 +562,7 @@ uint64_t fiber_resume(FibTCB * the_task){
     return (yieldCode);
 }
 
-FibTCB * fiber_sched_yield(){
+FibTCB * __attribute__ ((noinline)) fiber_sched_yield(){
     FibTCB * the_task = current_task;
 
     /* move to end of ready list */
@@ -1073,6 +1053,9 @@ RBQ_PROTOTYPE_STATIC(schedmsgq, schedmsgnode_t, copymsg, __usleep__, 16);
 
 __thread_local schedmsgq_t schedmsgq;
 
+/* disable gcc optimization, really calling into the function! */
+static FibTCB * (*__sched_yield)();
+
 static void * fiber_scheduler(void * args){
     /* user initialization function */
     fibthread_args_t * pargs = (fibthread_args_t *)args;
@@ -1086,68 +1069,82 @@ static void * fiber_scheduler(void * args){
 
     schedmsgnode_t msg;
     while (true){
-        if (!schedmsgq_pop(&schedmsgq, &msg)){
-            __usleep__(10);
-
-            /* fire watchdogs */
-            uint64_t curr_stmp = _utime();
-            uint64_t curr_gapp = curr_stmp - prev_stmp;
-            fiber_watchdog_tickle(curr_gapp);
-            prev_stmp = curr_stmp;
-
-            fiber_sched_yield();
-            continue;
-        }
-
-        switch (msg.type)
-        {
-            case MSG_TYPE_SCHEDULER:
-            switch (msg.code)
+        if (schedmsgq_pop(&schedmsgq, &msg)){
+            switch (msg.type)
             {
-                case MSG_CODE_ACTIVATED:
+                case MSG_TYPE_SCHEDULER:
+                switch (msg.code)
                 {
-                    FibTCB * the_task = (FibTCB *)(msg.data);
-                    uint64_t mask     = msg.valu;
+                    case MSG_CODE_ACTIVATED:
+                    {
+                        FibTCB * the_task = (FibTCB *)(msg.data);
+                        uint64_t mask     = msg.valu;
 
-                    if (the_task->state & mask){
-                        /* put into local block list & clear the state */
-                        _CHAIN_INSERT_TAIL(&local_blocklist, the_task);
+                        if (the_task->state & mask){
+                            /* put into local block list & clear the state */
+                            _CHAIN_INSERT_TAIL(&local_blocklist, the_task);
 
-                        /* clear block state, make it ready */
-                        fiber_clrstate(the_task, mask);
+                            /* clear block state, make it ready */
+                            fiber_clrstate(the_task, mask);
+                        }
                     }
-                }
-                break;
+                    break;
 
-                case MSG_CODE_POSTEVENT:
-                {
-                    FibTCB * the_task = (FibTCB *)(msg.data);
-                    uint64_t events  = msg.valu;
+                    case MSG_CODE_POSTEVENT:
+                    {
+                        FibTCB * the_task = (FibTCB *)(msg.data);
+                        uint64_t events  = msg.valu;
 
-                    /* make sure the task scheduled with current scheduler */
-                    // assert(the_task->scheduler == current_tcb);
+                        fiber_event_post(the_task, events);
+                    }
+                    break;
 
-                    fiber_event_post(the_task, events);
+                    default:;
                 }
                 break;
 
                 default:;
             }
-            break;
-
-            default:;
         }
-
-        {
+        else {
             /* fire watchdogs */
             uint64_t curr_stmp = _utime();
             uint64_t curr_gapp = curr_stmp - prev_stmp;
             fiber_watchdog_tickle(curr_gapp);
             prev_stmp = curr_stmp;
+    
+
+            /* workload balance between service threads */
+            FibTCB * next_task = NULL;
+            if (nLocalFibTasks < ((nGlobalFibTasks + mServiceThreads - 1) / mServiceThreads)){
+                /* get a task from global if too few tasks running locally */
+                spin_lock(&spinlock_readylist);
+                next_task = _CHAIN_EXTRACT_FIRST(&global_readylist);
+                spin_unlock(&spinlock_readylist);
+
+                if (likely(next_task != NULL)){
+                    /* one more task in local system */
+                    nLocalFibTasks += 1;
+
+                    /* switch scheduler & local data */
+                    next_task->scheduler = the_maintask;
+                    next_task->scheddata = &localscp;
+
+                    /* call the callback after switching thread */
+                    if (next_task->postSwitchingThread){
+                        next_task->postSwitchingThread(next_task);
+                    }
+                }
+            }
         }
 
-        /* schedule to other fiber */
-        fiber_sched_yield();
+        /* sleep or yield */
+        if (_CHAIN_FIRST(&local_readylist) == _CHAIN_LAST(&local_readylist)) {
+            __usleep__(10);
+        }
+        else {
+            fiber_sched_yield();
+        }
     }
 }
 
@@ -1156,6 +1153,7 @@ void * pthread_scheduler(void * args){
     FiberThreadStartup();
 
     schedmsgq_init(&schedmsgq);
+    __sched_yield = fiber_sched_yield;
 
     /* one service thread joined */
     mServiceThreads += 1;
