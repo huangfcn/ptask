@@ -97,8 +97,8 @@
 #define RBQ_TIMEDWAIT(name, us)                                         \
     static inline int name##_timedwait(sem_t * sem)                     \
     {                                                                   \
-    	struct timespec ts; int s;                                      \
-    	if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {                 \
+        struct timespec ts; int s;                                      \
+        if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {                 \
             return false;                                               \
         }                                                               \
                                                                         \
@@ -108,12 +108,12 @@
         ts.tv_nsec %= 1000000000ULL;                                    \
         while ((s = sem_timedwait(sem, &ts)) == -1 && errno == EINTR)   \
             continue;       /* Restart if interrupted by handler */     \
-        	                                                            \
+                                                                        \
         if (s == -1) {                                                  \
             return (errno == ETIMEDOUT) ? (+1) : (-1);                  \
         }                                                               \
         else{                                                           \
-        	return 0;                                                   \
+            return 0;                                                   \
         }                                                               \
     }
 
@@ -143,9 +143,9 @@
         name##_t* rbq, const type * pdata                               \
     )                                                                   \
     {                                                                   \
-    	if (name##_timedwait(&(rbq->sem_spc))){                         \
-    		return false;                                               \
-    	}                                                               \
+        if (name##_timedwait(&(rbq->sem_spc))){                         \
+            return false;                                               \
+        }                                                               \
                                                                         \
         uint64_t currWriteIndex = FAA(&(rbq->head));                    \
                                                                         \
@@ -166,9 +166,9 @@
         name##_t* rbq, type * pdata                                     \
     )                                                                   \
     {                                                                   \
-    	if (name##_timedwait(&(rbq->sem_dat)) != 0){                    \
-    		return false;                                               \
-    	}                                                               \
+        if (name##_timedwait(&(rbq->sem_dat)) != 0){                    \
+            return false;                                               \
+        }                                                               \
                                                                         \
         uint64_t currReadIndex = FAA(&(rbq->tail));                     \
                                                                         \
@@ -189,9 +189,9 @@
         name##_t* rbq                                                   \
     )                                                                   \
     {                                                                   \
-    	if (name##_timedwait(&(rbq->sem_spc)) != 0){                    \
-    		return false;                                               \
-    	}                                                               \
+        if (name##_timedwait(&(rbq->sem_spc)) != 0){                    \
+            return false;                                               \
+        }                                                               \
                                                                         \
         uint64_t currWriteIndex = FAA(&(rbq->head));                    \
                                                                         \
@@ -218,9 +218,9 @@
         name##_t* rbq                                                   \
     )                                                                   \
     {                                                                   \
-    	if (name##_timedwait(&(rbq->sem_dat)) != 0){                    \
-    		return false;                                               \
-    	}                                                               \
+        if (name##_timedwait(&(rbq->sem_dat)) != 0){                    \
+            return false;                                               \
+        }                                                               \
                                                                         \
         uint64_t currReadIndex = FAA(&(rbq->tail));                     \
                                                                         \
