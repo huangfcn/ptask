@@ -101,11 +101,12 @@ struct FibTCB{
     uint64_t  waitingEvents;
     uint64_t  seizedEvents;
 
+    /* waiting mutex or semaphore */
+    uint64_t  waitingObject;
+
     /* thread message queue associated with this task */
     FibTCB *  scheduler;
     FibSCP *  scheddata;
-
-    uint64_t  waitingObject;
 
     /* Task Local Storage */
     uint64_t  taskLocalStorages[MAX_TASK_LOCALDATAS];
@@ -169,7 +170,7 @@ typedef struct FibMsgQ {
     int32_t qsize, dsize;
 
     uint8_t * buffer;
-    void (*copyfunc)(void *, const void *);
+    void (*copyfunc)(void * dest, const void * src);
     FibSemaphore semSpac;
     FibSemaphore semData;
 } FibMsgQ;
