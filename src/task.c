@@ -919,6 +919,53 @@ bool fiber_sem_destroy(FibSemaphore * psem){
 /////////////////////////////////////////////////////////////////////////
 
 /////////////////////////////////////////////////////////////////////////
+/* fiber semaphore                                                     */
+/////////////////////////////////////////////////////////////////////////
+bool fiber_msgq_init(FibMsgQ * pq, int qsize, int dsize, void (*copydatafunc)(void *, const void *)){
+    fiber_sem_init(&(pq->semSpac), qsize);
+    fiber_sem_init(&(pq->semData), 0    );
+
+    pq->buffer = (uint8_t *)malloc(qsize * dsize);
+    pq->head = pq->tail = 0;
+    pq->qsize = qsize;
+    pq->dsize = dsize;
+    pq->copyfunc = copydatafunc;
+
+    return true;
+}
+
+bool fiber_msgq_push(FibMsgQ * pq, const void * data){
+    fiber_sem_wait(&(pq->semSpac));
+
+    int64_t wptr = FAA(&(pq->head));
+    wptr = wptr % ((uint64_t)(pq->qsize));
+    pq->copyfunc((void *)(pq->buffer + wptr * pq->dsize), data);
+
+    fiber_sem_post(&(pq->semData));
+    return true;
+}
+
+bool fiber_msgq_pop(FibMsgQ * pq, void * data){
+    fiber_sem_wait(&(pq->semData));
+
+    int64_t rptr = FAA(&(pq->tail));
+    rptr = rptr % ((uint64_t)(pq->qsize));
+    pq->copyfunc(data, (const void *)(pq->buffer + rptr * pq->dsize));
+
+    fiber_sem_post(&(pq->semSpac));
+    return true;
+}
+
+bool fiber_msgq_destroy(FibMsgQ * pq){
+    fiber_sem_destroy(&(pq->semSpac));
+    fiber_sem_destroy(&(pq->semData));
+
+    free(pq->buffer);
+    return true;
+};
+/////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////
 /* Scheduler Task (the default maintask of a thread)                   */
 /////////////////////////////////////////////////////////////////////////
 typedef struct _schedmsgnode_t {

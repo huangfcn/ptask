@@ -159,8 +159,21 @@ typedef struct FiberSemaphore {
     fibtcb_chain_t waitq;
 } FibSemaphore;
 
+typedef struct FibMsgQ {
+    volatile int64_t head;
+    volatile int64_t tail;
+
+    int32_t qsize, dsize;
+
+    uint8_t * buffer;
+    void (*copyfunc)(void *, const void *);
+    FibSemaphore semSpac;
+    FibSemaphore semData;
+} FibMsgQ;
+
 typedef FibMutex fiber_mutex_t;
 typedef FibSemaphore fiber_sem_t;
+typedef FibMsgQ fiber_msgq_t;
 
 ///////////////////////////////////////////////////////////////////
 /* coroutine lib standard APIs:                                  */
@@ -233,6 +246,13 @@ int  fiber_sem_init(FibSemaphore * psem, int initval);
 bool fiber_sem_wait(FibSemaphore * psem);
 bool fiber_sem_post(FibSemaphore * psem);
 bool fiber_sem_destroy(FibSemaphore * psem);
+
+/* message queue */
+bool fiber_msgq_init(FibMsgQ * pq, int qsize, int dsize, void (*copydatafunc)(void *, const void *));
+bool fiber_msgq_push(FibMsgQ * pq, const void * data);
+bool fiber_msgq_pop(FibMsgQ * pq, void * data);
+bool fiber_msgq_destroy(FibMsgQ * pq);
+
 ///////////////////////////////////////////////////////////////////
 
 //////////////////////////////////
