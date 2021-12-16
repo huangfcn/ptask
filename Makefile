@@ -1,5 +1,5 @@
 LIB=lib/libfiber.a
-all: $(LIB) simplehttp generator readerWriter
+all: $(LIB) simplehttp generator reader_writer
 
 AS=gcc -c
 CC=gcc
@@ -25,8 +25,8 @@ epoll.o: src/epoll.c $(INCFILES)
 simplehttp.o: simplehttp.c $(INCFILES)
 	$(CC) $(CFLAGS) -O2 simplehttp.c
 
-readerWriter.o: readerWriter.c $(INCFILES)
-	$(CC) $(CFLAGS) -O2 readerWriter.c
+reader_writer.o: reader_writer.c $(INCFILES)
+	$(CC) $(CFLAGS) -O2 reader_writer.c
 
 generator.o: generator.c $(INCFILES)
 	$(CC) $(CFLAGS) -O2 generator.c
@@ -40,11 +40,11 @@ simplehttp: simplehttp.o $(LIB)
 generator: generator.o $(LIB)
 	$(CC) -o generator generator.o $(LIB) -lpthread
 
-readerWriter: readerWriter.o $(LIB)
-	$(CC) -o readerWriter readerWriter.o $(LIB) -lpthread
+reader_writer: reader_writer.o $(LIB)
+	$(CC) -o reader_writer reader_writer.o $(LIB) -lpthread
 
 clean:
-	rm -f *.o $(all) $(LIB)
+	rm -f *.o simplehttp generator reader_writer $(LIB)
 
 install: $(LIB)
 	cp $(LIB) /usr/local/lib
