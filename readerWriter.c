@@ -19,9 +19,9 @@ void write_database();
 void* reader(void*);
 void* writer(void*);
 
-fiber_sem_t mutex;    /* controls access to nreaders */
-fiber_sem_t db;       /* controls access to db */
-fiber_sem_t q;        /* establish queue */
+fiber_mutex_t mutex;    /* controls access to nreaders */
+fiber_sem_t   db;       /* controls access to db */
+fiber_sem_t   q;        /* establish queue */
 
 fiber_t readers[MAXTHREAD], writerTh;
 int64_t ids[MAXTHREAD]; /*initialize readers and initialize mutex, */
@@ -31,9 +31,9 @@ volatile int nreaders = 0;
 
 bool initializeTasks(void* args) {
 
-    fiber_sem_init(&mutex, 1);
-    fiber_sem_init(&db,    1);
-    fiber_sem_init(&q,     1);
+    fiber_mutex_init(&mutex);
+    fiber_sem_init  (&db, 1);
+    fiber_sem_init  (&q,  1);
 
     for (int index = 0; index < MAXTHREAD; index++)
     {
@@ -63,10 +63,10 @@ void* reader(void* arg)   /* readers function to read */
     int64_t index = *(int64_t *)arg;
     while (1) {
         fiber_sem_wait(&q);
-        fiber_sem_wait(&mutex);
+        fiber_mutex_lock(&mutex);
         nreaders++;
         if (nreaders == 1) fiber_sem_wait(&db);
-        fiber_sem_post(&mutex);
+        fiber_mutex_unlock(&mutex);
 
         int value = access_database(index - 1);
         fiber_sem_post(&q);
@@ -75,10 +75,10 @@ void* reader(void* arg)   /* readers function to read */
         int msec = rand() % (1000 * index) + 100;
         fiber_usleep(msec * 1000);
 
-        fiber_sem_wait(&mutex);
+        fiber_mutex_lock(&mutex);
         nreaders--;
         if (nreaders == 0) fiber_sem_post(&db);
-        fiber_sem_post(&mutex);
+        fiber_mutex_unlock(&mutex);
         //non_access_database();
     }
     return 0;
