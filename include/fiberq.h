@@ -162,7 +162,7 @@
         return true;                                                    \
     };
 
-#define FIBERQ_PROTOTYPE(name, type, copyfunc, _tmous)                  \
+#define FIBERQ_PROTOTYPE(name, type, copyfunc, _tmo_us)                 \
     FIBERQ_HEAD(name, type);                                            \
                                                                         \
     FIBERQ_INIT(name, type);                                            \
@@ -172,12 +172,12 @@
     FIBERQ_EMPT(name);                                                  \
     FIBERQ_SIZE(name);                                                  \
                                                                         \
-    FIBERQ_TIMEDWAIT(name, _tmous);                                     \
+    FIBERQ_TIMEDWAIT(name, _tmo_us);                                    \
                                                                         \
     FIBERQ_PUSH(name, type, copyfunc);                                  \
     FIBERQ_POP (name, type, copyfunc);
 
-#define FIBERQ_PROTOTYPE_STATIC(name, type, copyfunc, _tmous, _SIZE)    \
+#define FIBERQ_PROTOTYPE_STATIC(name, type, copyfunc, _tmo_us, _SIZE)   \
     FIBERQ_HEAD_STATIC(name, type, _SIZE);                              \
                                                                         \
     FIBERQ_INIT_STATIC(name, type, _SIZE);                              \
@@ -187,7 +187,7 @@
     FIBERQ_EMPT(name);                                                  \
     FIBERQ_SIZE(name);                                                  \
                                                                         \
-    FIBERQ_TIMEDWAIT(name, _tmous);                                     \
+    FIBERQ_TIMEDWAIT(name, _tmo_us);                                    \
                                                                         \
     FIBERQ_PUSH(name, type, copyfunc);                                  \
     FIBERQ_POP (name, type, copyfunc);
