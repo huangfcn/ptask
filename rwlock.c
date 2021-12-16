@@ -117,7 +117,7 @@ void* reader(void* arg)   /* readers function to read */
         rwlock_rdlock(the_lock);
 
         int value = params.dbase[index-1];
-        printf("Thread %ld read %d\n", index - 1, value);
+        printf("Fiber %ld read %d\n", index - 1, value);
 
 
         rwlock_rdunlock(the_lock);

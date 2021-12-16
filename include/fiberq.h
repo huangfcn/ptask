@@ -95,7 +95,7 @@
     };
 
 #define FIBERQ_TIMEDWAIT(name, us)                                      \
-    static inline bool name##_timedwait(sem_t * sem)                    \
+    static inline bool name##_timedwait(fiber_sem_t * sem)              \
     {                                                                   \
         return fiber_sem_timedwait(sem, us);                            \
     }
@@ -158,7 +158,7 @@
         fiber_mutex_unlock(&(rbq->lock));                               \
                                                                         \
         /* done - update status */                                      \
-        fiber_post(&(rbq->sem_spc));                                    \
+        fiber_sem_post(&(rbq->sem_spc));                                \
         return true;                                                    \
     };
 

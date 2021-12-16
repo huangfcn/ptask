@@ -70,7 +70,7 @@ void* reader(void* arg)   /* readers function to read */
 
         int value = access_database(index - 1);
         fiber_sem_post(&q);
-        printf("Thread %ld read %d\n", index - 1, value);
+        printf("Fiber %ld read %d\n", index - 1, value);
         
         int msec = rand() % (100 * index) + 100;
         fiber_usleep(msec * 1000);
