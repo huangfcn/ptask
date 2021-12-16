@@ -9,8 +9,8 @@
 
 #include "sysdef.h"
 
-#ifndef __LOCKED_RBQ_MPMC_H__
-#define __LOCKED_RBQ_MPMC_H__
+#ifndef __BLOCKQ_MPMC_H__
+#define __BLOCKQ_MPMC_H__
 
 #define RBQ_NODE(name, type)                                            \
     typedef type name##_rbqnode_t;                                      \
