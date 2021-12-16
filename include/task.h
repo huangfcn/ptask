@@ -37,15 +37,17 @@ extern "C" {
 #define STATES_IN_USLEEP       (0x00004) /* waiting for resume  */
 #define STATES_WAIT_TIMEOUTB   (0x00008) /* wait for timeout    */
 #define STATES_WAITFOR_EVENT   (0x00010) /* wait for event      */
-#define STATES_WAITFOR_MUTEX   (0x00020) /* wait for event      */
-#define STATES_WAITFOR_SEMA    (0x00040) /* wait for event      */
+#define STATES_WAITFOR_MUTEX   (0x00020) /* wait for mutex      */
+#define STATES_WAITFOR_SEMPH   (0x00040) /* wait for semaphore  */
+#define STATES_WAITFOR_CONDV   (0x00080) /* wait for conditional variable */
 
 #define STATES_BLOCKED         (STATES_SUSPENDED     |    \
                                 STATES_IN_USLEEP     |    \
                                 STATES_WAIT_TIMEOUTB |    \
                                 STATES_WAITFOR_EVENT |    \
                                 STATES_WAITFOR_MUTEX |    \
-                                STATES_WAITFOR_SEMA  )
+                                STATES_WAITFOR_SEMPH |    \
+                                STATES_WAITFOR_CONDV )
 
 /* user provied stack */
 #define MASK_SYSTEM_STACK      (0x00001)
@@ -158,11 +160,16 @@ typedef struct FiberMutex {
 } FibMutex;
 
 typedef struct FiberSemaphore {
-    volatile int64_t count;
-
     spinlock       qlock;
     fibtcb_chain_t waitq;
+
+    volatile int64_t count;
 } FibSemaphore;
+
+typedef struct FiberCondition {
+    spinlock       qlock;
+    fibtcb_chain_t waitq;
+} FibCondition;
 
 typedef struct FibMsgQ {
     volatile int64_t head;
@@ -178,6 +185,7 @@ typedef struct FibMsgQ {
 
 typedef FibMutex     fiber_mutex_t;
 typedef FibSemaphore fiber_sem_t;
+typedef FibCondition fiber_cond_t;
 typedef FibMsgQ      fiber_msgq_t;
 
 ///////////////////////////////////////////////////////////////////
@@ -252,6 +260,14 @@ bool fiber_sem_wait(FibSemaphore * psem);
 bool fiber_sem_timedwait(FibSemaphore * psem, int timeout);
 bool fiber_sem_post(FibSemaphore * psem);
 bool fiber_sem_destroy(FibSemaphore * psem);
+
+/* Conditional Variables */
+int  fiber_cond_init(FibCondition * pcond);
+bool fiber_cond_wait(FibCondition * pcond, FibMutex * pmutex);
+bool fiber_cond_timedwait(FibCondition * pcond, FibMutex * pmutex, int timeout);
+bool fiber_cond_signal(FibCondition * pcond);
+bool fiber_cond_boardcast(FibCondition * pcond);
+bool fiber_cond_destroy(FibCondition * pcond);
 
 /* message queue */
 bool fiber_msgq_init(

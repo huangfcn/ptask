@@ -562,7 +562,7 @@ uint64_t fiber_resume(FibTCB * the_task){
     return (yieldCode);
 }
 
-FibTCB * __attribute__ ((noinline)) fiber_sched_yield(){
+__force_noinline FibTCB * fiber_sched_yield(){
     FibTCB * the_task = current_task;
 
     /* move to end of ready list */
@@ -698,7 +698,8 @@ int fiber_watchdog_tickle(int gap){
 
             /* make state be volatile (it may get changed in other thread) */
             volatile uint32_t * pstate = &(the_task->state);
-            if ((*pstate) & STATES_WAITFOR_SEMA){
+            if ((*pstate) & (STATES_WAITFOR_SEMPH | STATES_WAITFOR_CONDV)){
+                /* Semaphore & Condition Variable waitq at same position */
                 FibSemaphore * psem = (FibSemaphore *)(the_task->waitingObject);
                 spin_lock(&(psem->qlock));
                 if ((*pstate) & STATES_TRANSIENT){
@@ -869,7 +870,7 @@ bool fiber_sem_wait(FibSemaphore * psem){
     _CHAIN_INSERT_TAIL(&(psem->waitq), the_task);
 
     /* set state */
-    the_task->state |= STATES_WAITFOR_SEMA;
+    the_task->state |= STATES_WAITFOR_SEMPH;
 
     /* set waiting object */
     the_task->waitingObject = (uint64_t)(psem);
@@ -909,7 +910,7 @@ bool fiber_sem_timedwait(FibSemaphore * psem, int timeout){
     _CHAIN_INSERT_TAIL(&(psem->waitq), the_task);
 
     /* set state */
-    the_task->state |= (((timeout > 0) ? STATES_WAIT_TIMEOUTB : 0) | STATES_WAITFOR_SEMA);
+    the_task->state |= (((timeout > 0) ? STATES_WAIT_TIMEOUTB : 0) | STATES_WAITFOR_SEMPH);
 
     /* set waiting object */
     the_task->waitingObject = (uint64_t)(psem);
@@ -957,7 +958,7 @@ bool fiber_sem_post(FibSemaphore * psem){
         /* clear the block state */
         fiber_clrstate(
             the_first, 
-            STATES_WAITFOR_SEMA | STATES_TRANSIENT | STATES_WAIT_TIMEOUTB
+            STATES_WAITFOR_SEMPH | STATES_TRANSIENT | STATES_WAIT_TIMEOUTB
             );
         return (true);
     }
@@ -968,7 +969,7 @@ bool fiber_sem_post(FibSemaphore * psem){
             MSG_TYPE_SCHEDULER,
             MSG_CODE_ACTIVATED,
             (void *)psem, 
-            STATES_WAITFOR_SEMA | STATES_TRANSIENT | STATES_WAIT_TIMEOUTB
+            STATES_WAITFOR_SEMPH | STATES_TRANSIENT | STATES_WAIT_TIMEOUTB
             );
     }
 }
@@ -980,7 +981,198 @@ bool fiber_sem_destroy(FibSemaphore * psem){
 /////////////////////////////////////////////////////////////////////////
 
 /////////////////////////////////////////////////////////////////////////
-/* fiber semaphore                                                     */
+/* fiber condition variables (close to semaphore)                      */
+/////////////////////////////////////////////////////////////////////////
+int fiber_cond_init(FibCondition * pcond){
+    memset(pcond, 0, sizeof(FibCondition));
+
+    spin_init(&(pcond->qlock));
+    _CHAIN_INIT_EMPTY(&(pcond->waitq));
+    return (0);
+};
+
+bool fiber_cond_wait(FibCondition * pcond, FibMutex * pmutex){
+    FibTCB * the_task = current_task;
+
+    /* grab control of condition's waiting list */
+    spin_lock(&(pcond->qlock));
+
+    /* extract from local ready list */
+    _CHAIN_REMOVE(the_task);
+
+    /* insert into semaphore's waitq */
+    _CHAIN_INSERT_TAIL(&(pcond->waitq), the_task);
+
+    /* set state */
+    the_task->state |= STATES_WAITFOR_CONDV;
+
+    /* set waiting object */
+    the_task->waitingObject = (uint64_t)(pcond);
+
+    spin_unlock(&(pcond->qlock));
+
+    /* release the mutex */
+    fiber_mutex_unlock(pmutex);
+    
+    /* schedule to another task */
+    fiber_sched();
+
+    /* acquire the mutex */
+    fiber_mutex_lock(pmutex);
+
+    return true;
+}
+
+bool fiber_cond_timedwait(FibCondition * pcond, FibMutex * pmutex, int timeout){
+    FibTCB * the_task = current_task;
+
+    /* put onto semaphore's waiting list */
+    spin_lock(&(pcond->qlock));
+
+    if (timeout == 0){
+        spin_unlock(&(pcond->qlock));
+        return false;
+    }
+
+    /* extract from local ready list */
+    _CHAIN_REMOVE(the_task);
+
+    /* insert into condition's waitq */
+    _CHAIN_INSERT_TAIL(&(pcond->waitq), the_task);
+
+    /* set state */
+    the_task->state |= (((timeout > 0) ? STATES_WAIT_TIMEOUTB : 0) | STATES_WAITFOR_CONDV);
+
+    /* set waiting object */
+    the_task->waitingObject = (uint64_t)(pcond);
+    
+    spin_unlock(&(pcond->qlock));
+
+    /* put into watchdog waiting list */
+    if (timeout > 0){
+        the_task->delta_interval = timeout;
+        fiber_watchdog_insert(the_task);
+    }
+
+    /* release the mutex */
+    fiber_mutex_unlock(pmutex);
+    
+    /* schedule to another task */
+    fiber_sched();
+
+    /* acquire the mutex */
+    fiber_mutex_lock(pmutex);
+
+    return true;
+}
+
+bool fiber_cond_signal(FibCondition * pcond){
+    FibTCB * the_task = current_task;
+
+    /* lock */
+    spin_lock(&(pcond->qlock));
+
+    /* wakeup task if possible */
+    FibTCB * the_first = _CHAIN_EXTRACT_FIRST(&(pcond->waitq));
+    if (the_first == NULL){
+        spin_unlock(&(pcond->qlock));
+        return true;
+    }
+
+    /* the task is on transient now (write back to memory) */
+    volatile uint32_t * pstate = &(the_first->state);
+    *pstate |= STATES_TRANSIENT;
+
+    /* unlock & switch holder */
+    spin_unlock(&(pcond->qlock));
+
+    if (the_first->scheduler == the_task->scheduler){
+        /* insert the_first into blocked list */
+        _CHAIN_INSERT_TAIL(&(local_blocklist), the_first);
+
+        /* clear the block state */
+        fiber_clrstate(
+            the_first, 
+            STATES_WAITFOR_CONDV | STATES_TRANSIENT | STATES_WAIT_TIMEOUTB
+            );
+        return (true);
+    }
+    else{
+        /* activate by its scheduler */
+        return fiber_send_message_internal(
+            the_first,
+            MSG_TYPE_SCHEDULER,
+            MSG_CODE_ACTIVATED,
+            (void *)pcond, 
+            STATES_WAITFOR_CONDV | STATES_TRANSIENT | STATES_WAIT_TIMEOUTB
+            );
+    }
+}
+
+bool fiber_cond_boardcast(FibCondition * pcond){
+    FibTCB * the_task = current_task;
+
+    /* collect all waiting tasks */
+    fibtcb_chain_t localchain;
+    _CHAIN_INIT_EMPTY(&localchain);
+
+    FibTCB * the_tcb, * the_nxt;
+
+    /* lock */
+    spin_lock(&(pcond->qlock));
+
+    /* wakeup all tasks on waitq */
+    _CHAIN_FOREACH_SAFE(the_tcb, &(pcond->waitq), FibTCB, the_nxt){
+        _CHAIN_REMOVE(the_tcb);
+        _CHAIN_INSERT_TAIL(&localchain, the_tcb);
+
+        /* the task is on transient now (write back to memory) */
+        volatile uint32_t * pstate = &(the_tcb->state);
+        *pstate |= STATES_TRANSIENT;
+    }
+
+    /* unlock */
+    spin_unlock(&(pcond->qlock));
+
+    /* make all waiting tasks ready */
+    _CHAIN_FOREACH_SAFE(the_tcb, &localchain, FibTCB, the_nxt){
+        /* extract from local chain */
+        _CHAIN_REMOVE(the_tcb);
+
+        if (the_tcb->scheduler == the_task->scheduler){
+            /* insert the_first into blocked list */
+            _CHAIN_INSERT_TAIL(&(local_blocklist), the_tcb);
+
+            /* clear the block state */
+            fiber_clrstate(
+                the_tcb, 
+                STATES_WAITFOR_CONDV | STATES_TRANSIENT | STATES_WAIT_TIMEOUTB
+                );
+            return (true);
+        }
+        else{
+            /* activate by its scheduler */
+            return fiber_send_message_internal(
+                the_tcb,
+                MSG_TYPE_SCHEDULER,
+                MSG_CODE_ACTIVATED,
+                (void *)pcond, 
+                STATES_WAITFOR_CONDV | STATES_TRANSIENT | STATES_WAIT_TIMEOUTB
+                );
+        }
+    }
+
+    return true;
+}
+
+bool fiber_cond_destroy(FibCondition * pcond){
+    spin_destroy(&(pcond->qlock));
+    return true;
+}
+/////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////
+/* fiber bounded message queue                                         */
 /////////////////////////////////////////////////////////////////////////
 bool fiber_msgq_init(FibMsgQ * pq, int qsize, int dsize, void (*copydatafunc)(void *, const void *)){
     fiber_sem_init(&(pq->semSpac), qsize);
