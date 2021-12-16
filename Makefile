@@ -1,5 +1,5 @@
 LIB=lib/libfiber.a
-all: $(LIB) simplehttp generator reader_writer bq_cond
+all: $(LIB) simplehttp generator reader_writer bq_cond rwlock
 
 AS=gcc -c
 CC=gcc
@@ -34,6 +34,9 @@ generator.o: generator.c $(INCFILES)
 bq_cond.o: bq_cond.c $(INCFILES)
 	$(CC) $(CFLAGS) -O2 bq_cond.c
 
+rwlock.o: rwlock.c $(INCFILES)
+	$(CC) $(CFLAGS) -O2 rwlock.c
+	
 $(LIB): context.o task.o epoll.o
 	ar rvc $(LIB) context.o task.o epoll.o
 
@@ -49,8 +52,11 @@ reader_writer: reader_writer.o $(LIB)
 bq_cond: bq_cond.o $(LIB)
 	$(CC) -o bq_cond bq_cond.o $(LIB) -lpthread
 
+rwlock: rwlock.o $(LIB)
+	$(CC) -o rwlock rwlock.o $(LIB) -lpthread
+
 clean:
-	rm -f *.o simplehttp generator reader_writer bq_cond $(LIB)
+	rm -f *.o simplehttp generator reader_writer bq_cond rwlock $(LIB)
 
 install: $(LIB)
 	cp $(LIB) /usr/local/lib
