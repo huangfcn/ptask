@@ -1109,7 +1109,7 @@ bool fiber_cond_signal(FibCondition * pcond){
     }
 }
 
-bool fiber_cond_boardcast(FibCondition * pcond){
+bool fiber_cond_broadcast(FibCondition * pcond){
     FibTCB * the_task = current_task;
 
     /* collect all waiting tasks */

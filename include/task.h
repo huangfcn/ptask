@@ -266,7 +266,7 @@ int  fiber_cond_init(FibCondition * pcond);
 bool fiber_cond_wait(FibCondition * pcond, FibMutex * pmutex);
 bool fiber_cond_timedwait(FibCondition * pcond, FibMutex * pmutex, int timeout);
 bool fiber_cond_signal(FibCondition * pcond);
-bool fiber_cond_boardcast(FibCondition * pcond);
+bool fiber_cond_broadcast(FibCondition * pcond);
 bool fiber_cond_destroy(FibCondition * pcond);
 
 /* message queue */
