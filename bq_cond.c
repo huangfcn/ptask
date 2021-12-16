@@ -98,7 +98,7 @@ void *producer(void *arg)
         boundedqueue_enqueue(bq, item);
         printf("sent %c\n", val);
 
-        int timo = rand() % 3000 + 500;
+        int timo = rand() % 2500 + 500;
         fiber_usleep(timo * 1000);
     }
     return NULL;

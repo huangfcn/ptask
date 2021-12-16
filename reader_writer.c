@@ -72,7 +72,7 @@ void* reader(void* arg)   /* readers function to read */
         fiber_sem_post(&q);
         printf("Thread %ld read %d\n", index - 1, value);
         
-        int msec = rand() % (1000 * index) + 100;
+        int msec = rand() % (100 * index) + 100;
         fiber_usleep(msec * 1000);
 
         fiber_mutex_lock(&mutex);
@@ -94,7 +94,7 @@ void* writer(void* arg)      /* writer's function to write */
         write_database();
         fiber_sem_post(&q);
         printf("Writer is now writing...Number of readers: %d\n", nreaders);
-        int msec = rand() % 3000 + 500;
+        int msec = rand() % 300 + 50;
         fiber_usleep(msec * 1000);
         fiber_sem_post(&db);
     }
