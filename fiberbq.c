@@ -10,7 +10,7 @@
 #include "fiberq.h"
 
 #define copyint(from, to) do {*to = *from;} while(0)
-FIBERQ_PROTOTYPE_STATIC(fiberbq, int, copyint, -1, 128);
+FIBERQ_PROTOTYPE_STATIC(fiberbq, int, copyint, FIBER_TIMEOUT_WAITFOREVER, 128);
 
 
 static fiberbq_t bq;

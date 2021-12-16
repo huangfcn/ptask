@@ -26,7 +26,6 @@ __thread_local FibSCP localscp;
 
 #define local_freedlist_size (localscp.freedlist_size)
 
-#define local_taskonrun      (localscp.taskonrun     )
 #define local_schedmsgq      (localscp.schedmsgq     )
 #define local_freedlist      (localscp.freedlist     )
 #define local_blocklist      (localscp.blocklist     )
@@ -358,9 +357,6 @@ static void * cpp_taskmain(FibTCB * the_task){
 
     /* remove current task from ready list*/
     _CHAIN_REMOVE(the_task);
-
-    // int local_ready = local_readylist_size;
-    // printf("%d tasks ready now.\n", local_ready);
     
     /* free the_task */
     tcb_free(the_task);

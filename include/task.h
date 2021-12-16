@@ -16,17 +16,14 @@
 extern "C" {
 #endif
 
-#define MAX_LOCAL_READY_TASKS       (  64)
 #define MAX_LOCAL_FREED_TASKS       (  64)
-#define MAX_FDPOLLNG_PER_TASK       (  64)
-
 #define MAX_EPOLL_EVENTS_PER_THREAD (8192)
-
 #define TCB_INCREASE_SIZE_AT_EMPTY  (  64)
-#define EVT_INCREASE_SIZE_AT_EMPTY  (  64)
-
 #define MAX_TASK_LOCALDATAS         (   4)
 
+#define FIBER_TIMEOUT_NOWAIT        (   0)
+#define FIBER_TIMEOUT_WAITFOREVER   (  -1)
+    
 /*
  *  The following constants define the individual states which may be
  *  be used to compose and manipulate a thread's state.

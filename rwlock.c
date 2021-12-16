@@ -64,10 +64,10 @@ int rwlock_wrunlock(rwlock_t * locker) {
 }
 
 int rwlock_destroy(rwlock_t * locker){
-	fiber_mutex_destroy(&(locker->mutex));
-	fiber_cond_destroy(&(locker->unlocked));
+    fiber_mutex_destroy(&(locker->mutex));
+    fiber_cond_destroy(&(locker->unlocked));
 
-	return 0;
+    return 0;
 }
 ///////////////////////////////////////////////////////////////////////////////
 

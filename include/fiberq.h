@@ -15,7 +15,7 @@
         int32_t tail;                                                   \
         size_t  ndat;                                                   \
         size_t  size;                                                   \
-        fiber_mutex_t lock;                                             \
+        fiber_mutex_t  lock;                                            \
         fiber_sem_t sem_dat;                                            \
         fiber_sem_t sem_spc;                                            \
         type   * data;                                                  \
@@ -27,7 +27,7 @@
         int32_t tail;                                                   \
         size_t  ndat;                                                   \
         size_t  size;                                                   \
-        fiber_mutex_t lock;                                             \
+        fiber_mutex_t  lock;                                            \
         fiber_sem_t sem_dat;                                            \
         fiber_sem_t sem_spc;                                            \
         type     data[_SIZE];                                           \
@@ -43,7 +43,7 @@
         rbq->tail = 0;                                                  \
         rbq->ndat = 0;                                                  \
                                                                         \
-        fiber_sem_init(&(rbq->sem_dat), 0);                             \
+        fiber_sem_init(&(rbq->sem_dat), 0    );                         \
         fiber_sem_init(&(rbq->sem_spc), qsize);                         \
         fiber_mutex_init(&(rbq->lock));                                 \
                                                                         \
@@ -83,7 +83,7 @@
                                                                         \
         fiber_sem_destroy(&(rbq->sem_dat));                             \
         fiber_sem_destroy(&(rbq->sem_spc));                             \
-        fiber_mutex_destroy(&(rbq->lock));                              \
+        fiber_mutex_destroy( &(rbq->lock));                             \
     };
 
 #define FIBERQ_FREE_STATIC(name)                                        \
@@ -91,7 +91,7 @@
     {                                                                   \
         fiber_sem_destroy(&(rbq->sem_dat));                             \
         fiber_sem_destroy(&(rbq->sem_spc));                             \
-        fiber_mutex_destroy(&(rbq->lock));                              \
+        fiber_mutex_destroy( &(rbq->lock));                             \
     };
 
 #define FIBERQ_TIMEDWAIT(name, us)                                      \
