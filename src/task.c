@@ -915,6 +915,9 @@ bool fiber_sem_timedwait(FibSemaphore * psem, int timeout){
     /* set waiting object */
     the_task->waitingObject = (uint64_t)(psem);
     
+    /* set return code */
+    the_task->yieldCode = 0;
+
     spin_unlock(&(psem->qlock));
 
     /* put into watchdog waiting list */
@@ -925,7 +928,7 @@ bool fiber_sem_timedwait(FibSemaphore * psem, int timeout){
 
     /* schedule to another task */
     fiber_sched();
-    return true;
+    return the_task->yieldCode == 1;
 }
 
 bool fiber_sem_post(FibSemaphore * psem){
@@ -947,6 +950,9 @@ bool fiber_sem_post(FibSemaphore * psem){
     /* the task is on transient now */
     volatile uint32_t * pstate = &(the_first->state);
     *pstate |= STATES_TRANSIENT;
+
+    /* set return code */
+    the_first->yieldCode = 1;
 
     /* unlock & switch holder */
     spin_unlock(&(psem->qlock));
@@ -1046,6 +1052,9 @@ bool fiber_cond_timedwait(FibCondition * pcond, FibMutex * pmutex, int timeout){
     /* set waiting object */
     the_task->waitingObject = (uint64_t)(pcond);
     
+    /* set return code */
+    the_task->yieldCode = 0;
+
     spin_unlock(&(pcond->qlock));
 
     /* put into watchdog waiting list */
@@ -1063,7 +1072,7 @@ bool fiber_cond_timedwait(FibCondition * pcond, FibMutex * pmutex, int timeout){
     /* acquire the mutex */
     fiber_mutex_lock(pmutex);
 
-    return true;
+    return the_task->yieldCode == 1;
 }
 
 bool fiber_cond_signal(FibCondition * pcond){
@@ -1082,6 +1091,9 @@ bool fiber_cond_signal(FibCondition * pcond){
     /* the task is on transient now (write back to memory) */
     volatile uint32_t * pstate = &(the_first->state);
     *pstate |= STATES_TRANSIENT;
+
+    /* set return code for wait */
+    the_first->yieldCode = 1;
 
     /* unlock & switch holder */
     spin_unlock(&(pcond->qlock));
@@ -1123,12 +1135,16 @@ bool fiber_cond_broadcast(FibCondition * pcond){
 
     /* wakeup all tasks on waitq */
     _CHAIN_FOREACH_SAFE(the_tcb, &(pcond->waitq), FibTCB, the_nxt){
+        /* move tcb to temporary list */
         _CHAIN_REMOVE(the_tcb);
         _CHAIN_INSERT_TAIL(&localchain, the_tcb);
 
         /* the task is on transient now (write back to memory) */
         volatile uint32_t * pstate = &(the_tcb->state);
         *pstate |= STATES_TRANSIENT;
+
+        /* set return code for wait */
+        the_tcb->yieldCode = 1;
     }
 
     /* unlock */
@@ -1169,53 +1185,6 @@ bool fiber_cond_destroy(FibCondition * pcond){
     spin_destroy(&(pcond->qlock));
     return true;
 }
-/////////////////////////////////////////////////////////////////////////
-
-/////////////////////////////////////////////////////////////////////////
-/* fiber bounded message queue                                         */
-/////////////////////////////////////////////////////////////////////////
-bool fiber_msgq_init(FibMsgQ * pq, int qsize, int dsize, void (*copydatafunc)(void *, const void *)){
-    fiber_sem_init(&(pq->semSpac), qsize);
-    fiber_sem_init(&(pq->semData), 0    );
-
-    pq->buffer = (uint8_t *)malloc(qsize * dsize);
-    pq->head = pq->tail = 0;
-    pq->qsize = qsize;
-    pq->dsize = dsize;
-    pq->copyfunc = copydatafunc;
-
-    return true;
-}
-
-bool fiber_msgq_push(FibMsgQ * pq, const void * data){
-    fiber_sem_wait(&(pq->semSpac));
-
-    int64_t wptr = FAA(&(pq->head));
-    wptr = wptr % ((uint64_t)(pq->qsize));
-    pq->copyfunc((void *)(pq->buffer + wptr * pq->dsize), data);
-
-    fiber_sem_post(&(pq->semData));
-    return true;
-}
-
-bool fiber_msgq_pop(FibMsgQ * pq, void * data){
-    fiber_sem_wait(&(pq->semData));
-
-    int64_t rptr = FAA(&(pq->tail));
-    rptr = rptr % ((uint64_t)(pq->qsize));
-    pq->copyfunc(data, (const void *)(pq->buffer + rptr * pq->dsize));
-
-    fiber_sem_post(&(pq->semSpac));
-    return true;
-}
-
-bool fiber_msgq_destroy(FibMsgQ * pq){
-    fiber_sem_destroy(&(pq->semSpac));
-    fiber_sem_destroy(&(pq->semData));
-
-    free(pq->buffer);
-    return true;
-};
 /////////////////////////////////////////////////////////////////////////
 
 /////////////////////////////////////////////////////////////////////////

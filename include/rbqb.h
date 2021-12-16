@@ -22,6 +22,7 @@
         uint64_t head;                                                  \
         uint64_t tail;                                                  \
         size_t   size;                                                  \
+        pthread_mutex_t lock;                                           \
         sem_t    sem_dat;                                               \
         sem_t    sem_spc;                                               \
         name##_rbqnode_t * data;                                        \
@@ -32,6 +33,7 @@
         uint64_t head;                                                  \
         uint64_t tail;                                                  \
         size_t   size;                                                  \
+        pthread_mutex_t lock;                                           \
         sem_t    sem_dat;                                               \
         sem_t    sem_spc;                                               \
         name##_rbqnode_t data[(1 << _ORDER)];                           \
@@ -48,6 +50,7 @@
                                                                         \
         sem_init(&(rbq->sem_dat), 0, 0);                                \
         sem_init(&(rbq->sem_spc), 0, (1 << _ORDER));                    \
+        pthread_mutex_init(&(rbq->lock), NULL);                         \
                                                                         \
         rbq->data = (name##_rbqnode_t*)_aligned_malloc(                 \
             rbq->size * sizeof(name##_rbqnode_t), 16                    \
@@ -70,6 +73,7 @@
                                                                         \
         sem_init(&(rbq->sem_dat), 0, 0);                                \
         sem_init(&(rbq->sem_spc), 0, (1 << _ORDER));                    \
+        pthread_mutex_init(&(rbq->lock), NULL);                         \
                                                                         \
         memset(                                                         \
             (void*)(rbq->data), 0, rbq->size * sizeof(name##_rbqnode_t) \
@@ -85,6 +89,7 @@
                                                                         \
         sem_destroy(&(rbq->sem_dat));                                   \
         sem_destroy(&(rbq->sem_spc));                                   \
+        pthread_mutex_destroy(&(rbq->lock));                            \
     };
 
 #define RBQ_FREE_STATIC(name)                                           \
@@ -92,6 +97,7 @@
     {                                                                   \
         sem_destroy(&(rbq->sem_dat));                                   \
         sem_destroy(&(rbq->sem_spc));                                   \
+        pthread_mutex_destroy(&(rbq->lock));                            \
     };
 
 #define RBQ_TIMEDWAIT(name, us)                                         \
@@ -147,13 +153,11 @@
             return false;                                               \
         }                                                               \
                                                                         \
-        uint64_t currWriteIndex = FAA(&(rbq->head));                    \
-                                                                        \
-        currWriteIndex &= (rbq->size - 1);                              \
-        name##_rbqnode_t* pnode = rbq->data + currWriteIndex;           \
-                                                                        \
-        /* fill - exclusive */                                          \
+        pthread_mutex_lock(&(rbq->lock));                               \
+        name##_rbqnode_t* pnode = rbq->data + rbq->head;                \
         copyfunc(pdata, pnode);                                         \
+        rbq->head = (rbq->head + 1) & (rbq->size - 1);                  \
+        pthread_mutex_unlock(&(rbq->lock));                             \
                                                                         \
         /* done - update status */                                      \
         sem_post(&(rbq->sem_dat));                                      \
@@ -170,72 +174,12 @@
             return false;                                               \
         }                                                               \
                                                                         \
-        uint64_t currReadIndex = FAA(&(rbq->tail));                     \
-                                                                        \
-        currReadIndex &= (rbq->size - 1);                               \
-        name##_rbqnode_t* pnode = rbq->data + currReadIndex;            \
-                                                                        \
-        /* fill - exclusive */                                          \
+        pthread_mutex_lock(&(rbq->lock));                               \
+        name##_rbqnode_t* pnode = rbq->data + rbq->tail;                \
         copyfunc(pnode, pdata);                                         \
+        rbq->tail = (rbq->tail + 1) & (rbq->size - 1);                  \
+        pthread_mutex_unlock(&(rbq->lock));                             \
                                                                         \
-        /* done - update status */                                      \
-        sem_post(&(rbq->sem_spc));                                      \
-        return true;                                                    \
-    };
-
-#define RBQ_PUSH_ACQ(name, type)                                        \
-    /* push @ mutiple producers */                                      \
-    static inline type * name##_push_acq(                               \
-        name##_t* rbq                                                   \
-    )                                                                   \
-    {                                                                   \
-        if (name##_timedwait(&(rbq->sem_spc)) != 0){                    \
-            return false;                                               \
-        }                                                               \
-                                                                        \
-        uint64_t currWriteIndex = FAA(&(rbq->head));                    \
-                                                                        \
-        currWriteIndex &= (rbq->size - 1);                              \
-        name##_rbqnode_t* pnode = rbq->data + currWriteIndex;           \
-                                                                        \
-        return pnode;                                                   \
-    }
-
-#define RBQ_PUSH_UPD(name)                                              \
-    /* push @ mutiple producers */                                      \
-    static inline const type * name##_push_upd(                         \
-        name##_t* rbq                                                   \
-    )                                                                   \
-    {                                                                   \
-        /* done - update status */                                      \
-        sem_post(&(rbq->sem_dat));                                      \
-        return true;                                                    \
-    };
-
-#define RBQ_POP_ACQ(name, type)                                         \
-    /* push @ mutiple producers */                                      \
-    static inline const type * name##_pop_acq(                          \
-        name##_t* rbq                                                   \
-    )                                                                   \
-    {                                                                   \
-        if (name##_timedwait(&(rbq->sem_dat)) != 0){                    \
-            return false;                                               \
-        }                                                               \
-                                                                        \
-        uint64_t currReadIndex = FAA(&(rbq->tail));                     \
-                                                                        \
-        currReadIndex &= (rbq->size - 1);                               \
-        name##_rbqnode_t* pnode = rbq->data + currReadIndex;            \
-                                                                        \
-        return pnode;                                                   \
-    }
-
-#define RBQ_POP_UPD(name)                                               \
-    /* push @ mutiple producers */                                      \
-    static inline const type * name##_pop_upd(                          \
-        name##_t* rbq                                                   \
-    )                                                                   \
-    {                                                                   \
         /* done - update status */                                      \
         sem_post(&(rbq->sem_spc));                                      \
         return true;                                                    \
@@ -256,23 +200,5 @@
                                                                         \
     RBQ_PUSH(name, type, copyfunc);                                     \
     RBQ_POP (name, type, copyfunc);
-
-#define RBQ_PROTOTYPE_STATIC_ACQ(name, type, _tmous, _ORDER)            \
-    RBQ_NODE(name, type);                                               \
-    RBQ_HEAD_STATIC(name, type, _ORDER);                                \
-                                                                        \
-    RBQ_INIT_STATIC(name, _ORDER);                                      \
-    RBQ_FREE_STATIC(name);                                              \
-                                                                        \
-    RBQ_FULL(name);                                                     \
-    RBQ_EMPT(name);                                                     \
-    RBQ_SIZE(name);                                                     \
-                                                                        \
-    RBQ_TIMEDWAIT(name, _tmous);                                        \
-                                                                        \
-    RBQ_PUSH_ACQ(name, type);                                           \
-    RBQ_PUSH_UPD(name);                                                 \
-    RBQ_POP_ACQ (name, type);                                           \
-    RBQ_POP_UPD (name);
-
+    
 #endif

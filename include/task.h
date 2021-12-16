@@ -268,18 +268,6 @@ bool fiber_cond_timedwait(FibCondition * pcond, FibMutex * pmutex, int timeout);
 bool fiber_cond_signal(FibCondition * pcond);
 bool fiber_cond_broadcast(FibCondition * pcond);
 bool fiber_cond_destroy(FibCondition * pcond);
-
-/* message queue */
-bool fiber_msgq_init(
-    FibMsgQ * pq, 
-    int       qsize, 
-    int       dsize, 
-    void   (* copydatafunc)(void *, const void *)
-    );
-bool fiber_msgq_push(FibMsgQ * pq, const void * data);
-bool fiber_msgq_pop(FibMsgQ * pq, void * data);
-bool fiber_msgq_destroy(FibMsgQ * pq);
-
 ///////////////////////////////////////////////////////////////////
 
 //////////////////////////////////
