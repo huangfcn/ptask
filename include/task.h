@@ -55,6 +55,7 @@ extern "C" {
 
 struct FibTCB;
 typedef struct FibTCB FibTCB;
+typedef struct FibTCB * fiber_t;
 
 struct FibSCP;
 typedef struct FibSCP FibSCP;

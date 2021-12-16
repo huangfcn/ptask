@@ -23,24 +23,20 @@ void * generator_maintask(void * args){
     return (void *)(0);
 }
 
-void * generator_thread(void * args){
-    /* initialize thread environment */
-    FiberThreadStartup();
-
-    /* create maintask (reuse thread's stack) */
-    struct {} C;
-    FibTCB * the_task = fiber_create(generator_maintask, args, (void *)(&C), 0UL);
-
-    /* call maintask goto_context */
-    goto_contxt2(&(the_task->regs));
-
-    return ((void *)(0));
+bool initializeTasks(void* args) {
+    fiber_create(generator_maintask, args, NULL, 8192);
+    return true;
 }
 
 int main(){
     FiberGlobalStartup();
 
-    generator_thread(NULL);
+    /* run another thread */
+    fibthread_args_t args = {
+      .init_func = initializeTasks,
+      .args = (void *)(0),
+    };
+    pthread_scheduler(&args);
 
     return (0);
 }
