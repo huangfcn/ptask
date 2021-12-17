@@ -1,10 +1,10 @@
 LIB=lib/libfiber.a
-all: $(LIB) simplehttp generator reader_writer simplebq rwlock fiberbq pipe_ring
+all: $(LIB) simplehttp generator reader_writer blockq rwlock fiberbq pipe_ring
 
 AS=gcc -c
 CC=gcc
 CXX=g++
-CFLAGS=-Wall -c -Iinclude -I. -g
+CFLAGS=-Wall -c -Iinclude -I. -g -D__SCHEDULER_USING_BLOCKQ__
 
 INCFILES=include/task.h      \
          include/chain.h     \
@@ -17,10 +17,10 @@ context.o: src/context.S
 	$(AS) src/context.S
 
 task.o: src/task.c $(INCFILES)
-	$(CC) $(CFLAGS) -O3 src/task.c
+	$(CC) $(CFLAGS) -O3 -march=native src/task.c
 
 epoll.o: src/epoll.c $(INCFILES)
-	$(CC) $(CFLAGS) -O3 src/epoll.c
+	$(CC) $(CFLAGS) -O3 -march=native src/epoll.c
 
 simplehttp.o: simplehttp.c $(INCFILES)
 	$(CC) $(CFLAGS) -O2 simplehttp.c
@@ -31,8 +31,8 @@ reader_writer.o: reader_writer.c $(INCFILES)
 generator.o: generator.c $(INCFILES)
 	$(CC) $(CFLAGS) -O2 generator.c
 
-simplebq.o: simplebq.c $(INCFILES)
-	$(CC) $(CFLAGS) -O2 simplebq.c
+blockq.o: blockq.c $(INCFILES)
+	$(CC) $(CFLAGS) -O3 blockq.c
 
 rwlock.o: rwlock.c $(INCFILES)
 	$(CC) $(CFLAGS) -O2 rwlock.c
@@ -58,8 +58,8 @@ generator: generator.o $(LIB)
 reader_writer: reader_writer.o $(LIB)
 	$(CC) -o reader_writer reader_writer.o $(LIB) -lpthread
 
-simplebq: simplebq.o $(LIB)
-	$(CC) -o simplebq simplebq.o $(LIB) -lpthread
+blockq: blockq.o $(LIB)
+	$(CC) -o blockq blockq.o $(LIB) -lpthread
 
 rwlock: rwlock.o $(LIB)
 	$(CC) -o rwlock rwlock.o $(LIB) -lpthread
@@ -71,7 +71,7 @@ pipe_ring: pipe.o pipe_ring.o $(LIB)
 	$(CC) -o pipe_ring pipe_ring.o pipe.o $(LIB) -lpthread
 
 clean:
-	rm -f *.o simplehttp generator reader_writer simplebq rwlock fiberbq pipe_ring $(LIB)
+	rm -f *.o simplehttp generator reader_writer blockq rwlock fiberbq pipe_ring $(LIB)
 
 install: $(LIB)
 	cp $(LIB) /usr/local/lib

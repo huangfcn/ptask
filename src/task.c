@@ -358,9 +358,6 @@ static void * cpp_taskmain(FibTCB * the_task){
     /* remove current task from ready list*/
     _CHAIN_REMOVE(the_task);
     
-    /* free the_task */
-    tcb_free(the_task);
-
     /* free stack */
     if (the_task->stacksize & MASK_SYSTEM_STACK){
         /* cannot free at here, put into cache for next thread */
@@ -369,6 +366,9 @@ static void * cpp_taskmain(FibTCB * the_task){
             the_task->stacksize & (~15UL)
             );
     }
+    
+    /* free the_task */
+    tcb_free(the_task);
 
     if (is_maintask){ return (void *)(0); }
 
@@ -1264,8 +1264,10 @@ static void * fiber_scheduler(void * args){
             /* fire watchdogs */
             uint64_t curr_stmp = _utime();
             uint64_t curr_gapp = curr_stmp - prev_stmp;
-            if (curr_gapp){ fiber_watchdog_tickle(curr_gapp); }
-            prev_stmp = curr_stmp;
+            if (curr_gapp){ 
+                fiber_watchdog_tickle(curr_gapp); 
+                prev_stmp = curr_stmp;
+            }
     
 
             /* workload balance between service threads */

@@ -59,3 +59,4 @@ rwlock
 fiberbq
 simplebq
 pipe_ring
+blockq
