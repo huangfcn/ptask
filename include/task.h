@@ -16,7 +16,7 @@
 extern "C" {
 #endif
 
-#define MAX_LOCAL_FREED_TASKS       (  64)
+#define MAX_LOCAL_FREED_TASKS       ( 128)
 #define MAX_EPOLL_EVENTS_PER_THREAD (8192)
 #define TCB_INCREASE_SIZE_AT_EMPTY  (  64)
 #define MAX_TASK_LOCALDATAS         (   4)

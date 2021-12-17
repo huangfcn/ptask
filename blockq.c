@@ -13,7 +13,7 @@ struct blockq_t;
 typedef struct blockq_t blockq_t;
 
 blockq_t *blockq_new(size_t limit);
-void   blockq_push(blockq_t * bq, void * pitem);
+void   blockq_push(blockq_t * bq, void * object);
 void * blockq_pop (blockq_t * bq);
 void blockq_delete(blockq_t * bq);
 //////////////////////////////////////////////////////////
@@ -36,11 +36,11 @@ void * producer(void *arg)
         int i = rand() % 26;
 
         char   val  = 'A' + i;
-        char * item = (void *)(int64_t)(val);
-        blockq_push(bq, item);
+        char * object = (void *)(int64_t)(val);
+        blockq_push(bq, object);
         printf("producer %2d sent %c.\n", ctx->index, val);
 
-        int timo = rand() % 2000 + 400;
+        int timo = rand() % 3000 + 500;
         fiber_usleep(timo * 1000);
     }
     return NULL;
@@ -53,7 +53,7 @@ void *consumer(void *arg)
     while (true) {
         char val = (int64_t)blockq_pop(bq);
         printf("consumer %2d received %c.\n", ctx->index, val);
-        int timo = rand() % 3000 + 500;
+        int timo = rand() % 2000 + 400;
         fiber_usleep(timo * 1000);
     }
     return NULL;
@@ -102,7 +102,7 @@ bool initializeTasks2(void * args)
 int main(){
     FiberGlobalStartup();
 
-    blockq_t *bq = blockq_new(3);
+    blockq_t *bq = blockq_new(128);
 
     /* run another thread */
     fibthread_args_t args = {
@@ -129,18 +129,18 @@ int main(){
 /* blocking queue using linked list & condition variables     */
 ////////////////////////////////////////////////////////////////
 struct queue_node;
-typedef struct queue_node queue_node_t;
+typedef struct queue_node qnode_t;
 
 /*
  * Queue data structure.
  */
 typedef struct queue {
-    queue_node_t *head, *tail;
+    qnode_t *head, *tail;
 } queue_t;
 
 struct queue_node {
-    queue_node_t * next;
-    void * item;
+    qnode_t * next;
+    void    * object;
 };
 
 static inline void queue_init(queue_t *q)
@@ -153,14 +153,8 @@ static inline int queue_is_empty(queue_t *q)
     return q->head == NULL;
 }
 
-static inline void queue_push(queue_t *q, void * item)
+static inline void queue_push(queue_t *q, qnode_t *node)
 {
-    queue_node_t *node;
-
-    node = malloc(sizeof(queue_node_t));
-    node->item = item;
-    node->next = NULL;
-
     if (q->tail != NULL) {
         q->tail->next = node;
         q->tail = node;
@@ -169,41 +163,49 @@ static inline void queue_push(queue_t *q, void * item)
     }
 }
 
-static inline void * queue_pop(queue_t *q)
+static inline qnode_t * queue_pop(queue_t *q)
 {
-    void *item;
-    queue_node_t *old_head;
+    qnode_t * oldhead;
 
     assert(!queue_is_empty(q));
 
-    item = q->head->item;
-    old_head = q->head;
+    oldhead = q->head;
     q->head = q->head->next;
-    free(old_head);
     if (q->head == NULL) {
         q->tail = NULL;
     }
 
-    return item;
+    return oldhead;
 }
 
 ////////////////////////////////////////////////////////////
 struct blockq_t {
     queue_t q;
-    int32_t limit;  // max number of the queue
-    int32_t count;  // current number of items
+    qnode_t * freelist;
+
+    int32_t limit;
+    int32_t count;
 
     fiber_mutex_t lock;
     fiber_cond_t  empt;
-    fiber_cond_t  full;    
+    fiber_cond_t  full;  
 };
 
 blockq_t * blockq_new(size_t limit)
 {
-    blockq_t * bq = (blockq_t *)malloc(sizeof(blockq_t));
+    /* allocate all the memory we need */
+    blockq_t * bq = (blockq_t *)malloc(
+        sizeof(blockq_t) + sizeof(qnode_t) * (limit + 8)
+        );
     if (bq == NULL){ return NULL; }
-
     memset(bq, 0, sizeof(blockq_t));
+
+    /* setup qnodes list */
+    qnode_t * blocks = (qnode_t *)(bq + 1);
+    for (int i = 0; i < (limit + 8); ++i){
+        blocks[i].next = bq->freelist;
+        bq->freelist = (blocks + i);
+    }
 
     queue_init(&bq->q);
     bq->limit = limit;
@@ -216,7 +218,7 @@ blockq_t * blockq_new(size_t limit)
     return bq;
 }
 
-void blockq_push(blockq_t * bq, void *item)
+void blockq_push(blockq_t * bq, void *object)
 {
     fiber_mutex_lock(&bq->lock);
 
@@ -224,29 +226,43 @@ void blockq_push(blockq_t * bq, void *item)
         fiber_cond_wait(&bq->full, &bq->lock);
     }
 
-    queue_push(&bq->q, item);
+    /* allocate a qnode */
+    qnode_t * node = bq->freelist;
+    bq->freelist = node->next;
+
+    assert(node != NULL);
+
+    node->object = object;
+    node->next   = NULL;
+
+    queue_push(&bq->q, node);
     bq->count++;
 
     fiber_cond_signal(&bq->empt);
     fiber_mutex_unlock(&bq->lock);
 }
 
-void* blockq_pop(blockq_t * bq)
+void * blockq_pop(blockq_t * bq)
 {
-    void * res = NULL;
+    void * object = NULL;
     fiber_mutex_lock(&bq->lock);
 
     while (bq->count == 0) {
         fiber_cond_wait(&bq->empt, &bq->lock);
     }
 
-    res = queue_pop(&bq->q);
+    qnode_t * node = queue_pop(&bq->q);
+    object = node->object;
+    
+    node->next = bq->freelist;
+    bq->freelist = node;
+
     bq->count--;
     
     fiber_cond_signal(&bq->full);
     fiber_mutex_unlock(&bq->lock);
 
-    return res;
+    return object;
 }
 
 void blockq_delete(blockq_t * bq)

@@ -1,10 +1,9 @@
 LIB=lib/libfiber.a
 all: $(LIB) simplehttp generator reader_writer blockq rwlock fiberbq pipe_ring
 
-AS=gcc -c
+AS=gcc
 CC=gcc
-CXX=g++
-CFLAGS=-Wall -c -Iinclude -I. -g -D__SCHEDULER_USING_BLOCKQ__
+CFLAGS= -D__SCHEDULER_USING_BLOCKQ__ -Iinclude -I. -Wall
 
 INCFILES=include/task.h      \
          include/chain.h     \
@@ -13,65 +12,41 @@ INCFILES=include/task.h      \
          include/timestamp.h \
          include/epoll.h
 
-context.o: src/context.S
-	$(AS) src/context.S
+.objs/context.o: src/context.S
+	$(AS) -c $< -o $@
 
-task.o: src/task.c $(INCFILES)
-	$(CC) $(CFLAGS) -O3 -march=native src/task.c
+.objs/%.o: src/%.c $(INCFILES)
+	$(CC) $(CFLAGS) -O3 -march=native -c $< -o $@
 
-epoll.o: src/epoll.c $(INCFILES)
-	$(CC) $(CFLAGS) -O3 -march=native src/epoll.c
+.objs/%.o: %.c $(INCFILES)
+	$(CC) $(CFLAGS) -O3 -march=native -c $< -o $@
 
-simplehttp.o: simplehttp.c $(INCFILES)
-	$(CC) $(CFLAGS) -O2 simplehttp.c
+$(LIB): .objs/context.o .objs/task.o .objs/epoll.o
+	ar rvc $(LIB) .objs/context.o .objs/task.o .objs/epoll.o
 
-reader_writer.o: reader_writer.c $(INCFILES)
-	$(CC) $(CFLAGS) -O2 reader_writer.c
+simplehttp: .objs/simplehttp.o $(LIB)
+	$(CC) -o $@ $< $(LIB) -lpthread
 
-generator.o: generator.c $(INCFILES)
-	$(CC) $(CFLAGS) -O2 generator.c
+generator: .objs/generator.o $(LIB)
+	$(CC) -o $@ $< $(LIB) -lpthread
 
-blockq.o: blockq.c $(INCFILES)
-	$(CC) $(CFLAGS) -O3 blockq.c
+reader_writer: .objs/reader_writer.o $(LIB)
+	$(CC) -o $@ $< $(LIB) -lpthread
 
-rwlock.o: rwlock.c $(INCFILES)
-	$(CC) $(CFLAGS) -O2 rwlock.c
+blockq: .objs/blockq.o $(LIB)
+	$(CC) -o $@ $< $(LIB) -lpthread
 
-fiberbq.o: fiberbq.c $(INCFILES) include/fiberq.h
-	$(CC) $(CFLAGS) -O2 fiberbq.c
+rwlock: .objs/rwlock.o $(LIB)
+	$(CC) -o $@ $< $(LIB) -lpthread
 
-pipe.o: pipe.c $(INCFILES) pipe.h
-	$(CC) $(CFLAGS) -march=native -O3 pipe.c
+fiberbq: .objs/fiberbq.o $(LIB)
+	$(CC) -o $@ $< $(LIB) -lpthread
 
-pipe_ring.o: pipe_ring.c $(INCFILES) pipe.h
-	$(CC) $(CFLAGS) -O3 pipe_ring.c
-
-$(LIB): context.o task.o epoll.o
-	ar rvc $(LIB) context.o task.o epoll.o
-
-simplehttp: simplehttp.o $(LIB)
-	$(CC) -o simplehttp simplehttp.o $(LIB) -lpthread
-
-generator: generator.o $(LIB)
-	$(CC) -o generator generator.o $(LIB) -lpthread
-
-reader_writer: reader_writer.o $(LIB)
-	$(CC) -o reader_writer reader_writer.o $(LIB) -lpthread
-
-blockq: blockq.o $(LIB)
-	$(CC) -o blockq blockq.o $(LIB) -lpthread
-
-rwlock: rwlock.o $(LIB)
-	$(CC) -o rwlock rwlock.o $(LIB) -lpthread
-
-fiberbq: fiberbq.o $(LIB)
-	$(CC) -o fiberbq fiberbq.o $(LIB) -lpthread
-
-pipe_ring: pipe.o pipe_ring.o $(LIB)
-	$(CC) -o pipe_ring pipe_ring.o pipe.o $(LIB) -lpthread
+pipe_ring: .objs/pipe.o .objs/pipe_ring.o $(LIB)
+	$(CC) -o $@ .objs/pipe.o .objs/pipe_ring.o $(LIB) -lpthread
 
 clean:
-	rm -f *.o simplehttp generator reader_writer blockq rwlock fiberbq pipe_ring $(LIB)
+	rm -f .objs/*.o simplehttp generator reader_writer blockq rwlock fiberbq pipe_ring $(LIB)
 
 install: $(LIB)
 	cp $(LIB) /usr/local/lib

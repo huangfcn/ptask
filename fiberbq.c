@@ -29,7 +29,7 @@ void *producer(void *arg)
         fiberbq_push(the_q, &val);
         printf("producer %2d: sent %c\n", index, val);
 
-        int timo = rand() % 2500 + 500;
+        int timo = rand() % 2500 + 450;
         fiber_usleep(timo * 1000);
     }
     return NULL;
