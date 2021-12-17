@@ -1,10 +1,10 @@
 LIB=lib/libfiber.a
-all: $(LIB) simplehttp generator reader_writer simplebq rwlock fiberbq
+all: $(LIB) simplehttp generator reader_writer simplebq rwlock fiberbq pipe_ring
 
 AS=gcc -c
 CC=gcc
 CXX=g++
-CFLAGS=-Wall -c -Iinclude -g -D__SCHEDULER_USING_BLOCKQ__
+CFLAGS=-Wall -c -Iinclude -I. -g
 
 INCFILES=include/task.h      \
          include/chain.h     \
@@ -40,6 +40,12 @@ rwlock.o: rwlock.c $(INCFILES)
 fiberbq.o: fiberbq.c $(INCFILES) include/fiberq.h
 	$(CC) $(CFLAGS) -O2 fiberbq.c
 
+pipe.o: pipe.c $(INCFILES) pipe.h
+	$(CC) $(CFLAGS) -march=native -O3 pipe.c
+
+pipe_ring.o: pipe_ring.c $(INCFILES) pipe.h
+	$(CC) $(CFLAGS) -O3 pipe_ring.c
+
 $(LIB): context.o task.o epoll.o
 	ar rvc $(LIB) context.o task.o epoll.o
 
@@ -61,8 +67,11 @@ rwlock: rwlock.o $(LIB)
 fiberbq: fiberbq.o $(LIB)
 	$(CC) -o fiberbq fiberbq.o $(LIB) -lpthread
 
+pipe_ring: pipe.o pipe_ring.o $(LIB)
+	$(CC) -o pipe_ring pipe_ring.o pipe.o $(LIB) -lpthread
+
 clean:
-	rm -f *.o simplehttp generator reader_writer simplebq rwlock fiberbq $(LIB)
+	rm -f *.o simplehttp generator reader_writer simplebq rwlock fiberbq pipe_ring $(LIB)
 
 install: $(LIB)
 	cp $(LIB) /usr/local/lib

@@ -58,3 +58,4 @@ bq_cond
 rwlock
 fiberbq
 simplebq
+pipe_ring

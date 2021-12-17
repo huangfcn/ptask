@@ -21,9 +21,10 @@ extern "C" {
 #define TCB_INCREASE_SIZE_AT_EMPTY  (  64)
 #define MAX_TASK_LOCALDATAS         (   4)
 
+#define FIBER_STACKSIZE_MIN         (8192)
 #define FIBER_TIMEOUT_NOWAIT        (   0)
-#define FIBER_TIMEOUT_WAITFOREVER   (  -1)
-    
+#define FIBER_TIMEOUT_INFINITE      (  -1)
+
 /*
  *  The following constants define the individual states which may be
  *  be used to compose and manipulate a thread's state.

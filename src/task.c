@@ -1203,9 +1203,10 @@ typedef struct _schedmsgnode_t {
 } while (0)
 
 #ifdef __SCHEDULER_USING_BLOCKQ__
-RBQ_PROTOTYPE_STATIC(schedmsgq, schedmsgnode_t, copymsg, 10000ULL,   16);
+RBQ_PROTOTYPE_STATIC(schedmsgq, schedmsgnode_t, copymsg, 10000ULL, 16);
 #else
-RBQ_PROTOTYPE_STATIC(schedmsgq, schedmsgnode_t, copymsg, __usleep__, 16);
+#define __relax_(n) cpu_relax()
+RBQ_PROTOTYPE_STATIC(schedmsgq, schedmsgnode_t, copymsg, __relax_, 16);
 #endif
 
 __thread_local schedmsgq_t schedmsgq;
@@ -1263,7 +1264,7 @@ static void * fiber_scheduler(void * args){
             /* fire watchdogs */
             uint64_t curr_stmp = _utime();
             uint64_t curr_gapp = curr_stmp - prev_stmp;
-            fiber_watchdog_tickle(curr_gapp);
+            if (curr_gapp){ fiber_watchdog_tickle(curr_gapp); }
             prev_stmp = curr_stmp;
     
 
@@ -1291,11 +1292,8 @@ static void * fiber_scheduler(void * args){
             }
         }
 
-        /* sleep if only schediuler ready to run otherwise yield */
-        if (_CHAIN_FIRST(&local_readylist) == _CHAIN_LAST(&local_readylist)) {
-            __usleep__(10);
-        }
-        else {
+        /* exhaust all fibers */
+        while (_CHAIN_FIRST(&local_readylist) != _CHAIN_LAST(&local_readylist)) {
             fiber_sched_yield();
         }
     }

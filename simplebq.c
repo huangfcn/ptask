@@ -1,4 +1,4 @@
-/* bounded queue using condition variables */
+/* bounded queue using linked list & condition variables */
 
 #include <unistd.h>
 #include <assert.h>
