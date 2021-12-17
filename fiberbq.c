@@ -12,7 +12,6 @@
 #define copyint(from, to) do {*to = *from;} while(0)
 FIBERQ_PROTOTYPE_STATIC(fiberbq, int, copyint, FIBER_TIMEOUT_INFINITE, 128);
 
-
 static fiberbq_t bq;
 
 #define NUM_PRODUCERS   8
@@ -51,6 +50,7 @@ void *consumer(void *arg)
     return NULL;
 }
 
+/* create a fully loaded thread, it will push loading to other threads */
 bool initializeTasks(void * args)
 {
     for (int64_t i = 0; i < NUM_PRODUCERS; ++i)
@@ -58,6 +58,18 @@ bool initializeTasks(void * args)
 
     for (int64_t i = 0; i < NUM_CONSUMERS; ++i)
         fiber_create(&consumer, (void *)i, NULL, 8192);
+
+    return true;
+}
+
+/* create idle thread to accept loading from other threads */
+bool initializeTasks2(void * args)
+{
+    // for (int64_t i = 0; i < NUM_PRODUCERS; ++i)
+    //     fiber_create(&producer, (void *)i, NULL, 8192);
+
+    // for (int64_t i = 0; i < NUM_CONSUMERS; ++i)
+    //     fiber_create(&consumer, (void *)i, NULL, 8192);
 
     return true;
 }
@@ -72,7 +84,16 @@ int main(){
       .init_func = initializeTasks,
       .args = (void *)(&bq),
     };
-    pthread_scheduler(&args);
+
+    pthread_t tid;
+    pthread_create(&tid, NULL, pthread_scheduler, &args);
+
+    fibthread_args_t args2 = {
+      .init_func = initializeTasks2,
+      .args = (void *)(&bq),
+    };
+
+    pthread_scheduler(&args2);
 
     return (0);
 }

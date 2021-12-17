@@ -366,7 +366,7 @@ static void * cpp_taskmain(FibTCB * the_task){
             the_task->stacksize & (~15UL)
             );
     }
-    
+
     /* free the_task */
     tcb_free(the_task);
 
@@ -521,9 +521,9 @@ static inline int fiber_clrstate(FibTCB * the_task, uint64_t states){
     _CHAIN_REMOVE(the_task);
 
     /* put into global ready list if too much tasks in local list */
-    if ((the_task != the_maintask) && (nLocalFibTasks > ((nGlobalFibTasks * 9 / 8 + mServiceThreads - 1) / mServiceThreads))){
+    if (unlikely((the_task != the_maintask) && (nLocalFibTasks > ((nGlobalFibTasks * 9 / 8 + mServiceThreads - 1) / mServiceThreads)))){
         /* call the callback when switching thread */
-        if (the_task->preSwitchingThread){
+        if (unlikely(the_task->preSwitchingThread)){
             the_task->preSwitchingThread(the_task);
         }
         
@@ -534,6 +534,8 @@ static inline int fiber_clrstate(FibTCB * the_task, uint64_t states){
 
         /* decrease local tasks */
         nLocalFibTasks -= 1;
+
+        // printf("thread %lu push task %p out\n", ((uint64_t)pthread_self()), the_task);
     }
     else{
         _CHAIN_INSERT_TAIL(&local_readylist, the_task);
@@ -1272,13 +1274,16 @@ static void * fiber_scheduler(void * args){
 
             /* workload balance between service threads */
             FibTCB * next_task = NULL;
-            if (nLocalFibTasks < ((nGlobalFibTasks + mServiceThreads - 1) / mServiceThreads)){
+            if (unlikely(nLocalFibTasks < ((nGlobalFibTasks + mServiceThreads - 1) / mServiceThreads))){
                 /* get a task from global if too few tasks running locally */
                 spin_lock(&spinlock_readylist);
                 next_task = _CHAIN_EXTRACT_FIRST(&global_readylist);
                 spin_unlock(&spinlock_readylist);
 
-                if (likely(next_task != NULL)){
+                if (unlikely(next_task != NULL)){
+                    /* insert into local ready list */
+                    _CHAIN_INSERT_TAIL(&local_readylist, next_task);
+
                     /* one more task in local system */
                     nLocalFibTasks += 1;
 
@@ -1287,9 +1292,11 @@ static void * fiber_scheduler(void * args){
                     next_task->scheddata = &localscp;
 
                     /* call the callback after switching thread */
-                    if (next_task->postSwitchingThread){
+                    if (unlikely(next_task->postSwitchingThread)){
                         next_task->postSwitchingThread(next_task);
                     }
+
+                    // printf("thread %lu pull task %p in.\n", ((uint64_t)pthread_self()), next_task);
                 }
             }
         }

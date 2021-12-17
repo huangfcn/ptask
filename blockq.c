@@ -28,7 +28,6 @@ typedef struct {
 
 context_t ctxProducers[NUM_PRODUCERS], ctxConsumers[NUM_CONSUMERS];
 
-// producer is fast
 void * producer(void *arg)
 {
     context_t * ctx = (context_t *)arg;
@@ -47,7 +46,6 @@ void * producer(void *arg)
     return NULL;
 }
 
-// consumer is slow
 void *consumer(void *arg)
 {
     context_t * ctx = (context_t *)arg;
@@ -61,9 +59,10 @@ void *consumer(void *arg)
     return NULL;
 }
 
+/* create a fully loaded thread, it will push loading to other threads */
 bool initializeTasks(void * args)
 {
-    blockq_t *bq = blockq_new(3);
+    blockq_t *bq = (blockq_t *)args;
 
     for (int i = 0; i < NUM_PRODUCERS; ++i){
         ctxProducers[i].index = i;
@@ -80,15 +79,46 @@ bool initializeTasks(void * args)
     return true;
 }
 
+/* create idle thread to accept loading from other threads */
+bool initializeTasks2(void * args)
+{
+    // blockq_t *bq = (blockq_t *)args;
+
+    // for (int i = 0; i < NUM_PRODUCERS; ++i){
+    //     ctxProducers[i].index = i;
+    //     ctxProducers[i].bq    = bq;
+    //     fiber_create(&producer, &ctxProducers[i], NULL, FIBER_STACKSIZE_MIN);
+    // }
+
+    // for (int i = 0; i < NUM_CONSUMERS; ++i){
+    //     ctxConsumers[i].index = i;
+    //     ctxConsumers[i].bq    = bq;
+    //     fiber_create(&consumer, &ctxConsumers[i], NULL, FIBER_STACKSIZE_MIN);
+    // }
+
+    return true;
+}
+
 int main(){
     FiberGlobalStartup();
+
+    blockq_t *bq = blockq_new(3);
 
     /* run another thread */
     fibthread_args_t args = {
       .init_func = initializeTasks,
-      .args = (void *)(0),
+      .args = (void *)(bq),
     };
-    pthread_scheduler(&args);
+
+    pthread_t tid;
+    pthread_create(&tid, NULL, pthread_scheduler, &args);
+
+    fibthread_args_t args2 = {
+      .init_func = initializeTasks2,
+      .args = (void *)(bq),
+    };
+
+    pthread_scheduler(&args2);
 
     return (0);
 }
@@ -109,7 +139,7 @@ typedef struct queue {
 } queue_t;
 
 struct queue_node {
-    struct queue_node *next;
+    queue_node_t * next;
     void * item;
 };
 
