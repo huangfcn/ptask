@@ -1,5 +1,3 @@
-/* bounded queue using linked list & condition variables */
-
 #include <unistd.h>
 #include <assert.h>
 
@@ -65,7 +63,7 @@ void *consumer(void *arg)
 
 bool initializeTasks(void * args)
 {
-    blockq_t *bq = blockq_new(16);
+    blockq_t *bq = blockq_new(3);
 
     for (int i = 0; i < NUM_PRODUCERS; ++i){
         ctxProducers[i].index = i;
@@ -98,6 +96,7 @@ int main(){
 
 ////////////////////////////////////////////////////////////////
 /* blockq.c                                                   */
+/* blocking queue using linked list & condition variables     */
 ////////////////////////////////////////////////////////////////
 struct queue_node;
 typedef struct queue_node queue_node_t;
