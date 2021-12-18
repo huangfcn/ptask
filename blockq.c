@@ -106,15 +106,15 @@ int main(){
 
     /* run another thread */
     fibthread_args_t args = {
-      .init_func = initializeTasks,
+      .init_func = initializeTasks2,
       .args = (void *)(bq),
     };
 
     pthread_t tid;
-    pthread_create(&tid, NULL, pthread_scheduler, &args);
+    pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
 
     fibthread_args_t args2 = {
-      .init_func = initializeTasks2,
+      .init_func = initializeTasks,
       .args = (void *)(bq),
     };
 
@@ -128,8 +128,8 @@ int main(){
 /* blockq.c                                                   */
 /* blocking queue using linked list & condition variables     */
 ////////////////////////////////////////////////////////////////
-struct queue_node;
-typedef struct queue_node qnode_t;
+struct qnode;
+typedef struct qnode qnode_t;
 
 /*
  * Queue data structure.
@@ -138,7 +138,7 @@ typedef struct queue {
     qnode_t *head, *tail;
 } queue_t;
 
-struct queue_node {
+struct qnode {
     qnode_t * next;
     void    * object;
 };

@@ -81,15 +81,16 @@ int main(){
 
     /* run another thread */
     fibthread_args_t args = {
-      .init_func = initializeTasks,
+      .init_func = initializeTasks2,
       .args = (void *)(&bq),
     };
 
     pthread_t tid;
-    pthread_create(&tid, NULL, pthread_scheduler, &args);
+    /* create a service thread and wait it running */
+    pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
 
     fibthread_args_t args2 = {
-      .init_func = initializeTasks2,
+      .init_func = initializeTasks,
       .args = (void *)(&bq),
     };
 

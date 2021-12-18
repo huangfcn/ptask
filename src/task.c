@@ -337,10 +337,6 @@ static void * cpp_taskmain(FibTCB * the_task){
         the_task->onTaskStartup(the_task);
     }
 
-    /* increase number of fibtasks in system */
-    FAA(&nGlobalFibTasks);
-    nLocalFibTasks += 1;
-
     /* call user entry */
     the_task->entry(the_task->args);
 
@@ -426,17 +422,36 @@ FibTCB * fiber_create(
     the_task->regs.reg_rip = (uint64_t)(asm_taskmain);
     the_task->regs.reg_rsp = (uint64_t)(stackbase + (stacksize & (~15UL)));
 
-   /* put next_task onto end of ready list */
-    _CHAIN_INSERT_TAIL(&local_readylist, the_task);
-
     /* usually the first task created of thread is the maintask */
     if (the_maintask == NULL){
         the_maintask = the_task;
         current_task = the_task;
     }
 
-    the_task->scheduler = (the_maintask);
-    the_task->scheddata = &localscp;
+    /* increase number of fibtasks in system */
+    FAA(&nGlobalFibTasks);
+    nLocalFibTasks += 1;
+
+    /* load balance when task first created */
+    if (unlikely((the_task != the_maintask) && (nLocalFibTasks > ((nGlobalFibTasks * 9 / 8 + mServiceThreads - 1) / mServiceThreads)))){
+        /* put onto global ready list */
+        spin_lock(&spinlock_readylist);
+        _CHAIN_INSERT_TAIL(&global_readylist, the_task);
+        spin_unlock(&spinlock_readylist);
+
+        /* decrease number of local tasks */
+        nLocalFibTasks -= 1;
+
+        // printf("thread %lu push task %p out\n", ((uint64_t)pthread_self()), the_task);
+    }
+    else{
+        /* put next_task onto end of ready list */
+        _CHAIN_INSERT_TAIL(&local_readylist, the_task);
+
+        /* set scheduler & scheddata */
+        the_task->scheduler = (the_maintask);
+        the_task->scheddata = &localscp;
+    }
     return the_task;
 }
 /////////////////////////////////////////////////////////////////////////
@@ -520,26 +535,8 @@ static inline int fiber_clrstate(FibTCB * the_task, uint64_t states){
     /* extract from blocked list */
     _CHAIN_REMOVE(the_task);
 
-    /* put into global ready list if too much tasks in local list */
-    if (unlikely((the_task != the_maintask) && (nLocalFibTasks > ((nGlobalFibTasks * 9 / 8 + mServiceThreads - 1) / mServiceThreads)))){
-        /* call the callback when switching thread */
-        if (unlikely(the_task->preSwitchingThread)){
-            the_task->preSwitchingThread(the_task);
-        }
-        
-        /* put onto global ready list */
-        spin_lock(&spinlock_readylist);
-        _CHAIN_INSERT_TAIL(&global_readylist, the_task);
-        spin_unlock(&spinlock_readylist);
-
-        /* decrease local tasks */
-        nLocalFibTasks -= 1;
-
-        // printf("thread %lu push task %p out\n", ((uint64_t)pthread_self()), the_task);
-    }
-    else{
-        _CHAIN_INSERT_TAIL(&local_readylist, the_task);
-    }
+    /* insert into local ready list */
+    _CHAIN_INSERT_TAIL(&local_readylist, the_task);
     return (0);
 }
 /////////////////////////////////////////////////////////////////////////
@@ -611,7 +608,7 @@ uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout){
 /* post event (only used internally) */
 int fiber_event_post(FibTCB * the_task, uint64_t events_in){
     /* check target task running on same thread (?) */
-    if (the_task->scheduler != the_maintask){
+    if (unlikely(the_task->scheduler != the_maintask)){
         return fiber_send_message_internal(
             the_task, 
             MSG_TYPE_SCHEDULER,
@@ -1315,7 +1312,7 @@ void * pthread_scheduler(void * args){
     schedmsgq_init(&schedmsgq);
 
     /* one service thread joined */
-    mServiceThreads += 1;
+    FAA(&mServiceThreads); // += 1;
 
     /* create maintask (reuse thread's stack) */
     struct {} C;
@@ -1330,7 +1327,7 @@ void * pthread_scheduler(void * args){
     goto_contxt2(&(the_task->regs));
 
     /* one service thread left */
-    mServiceThreads -= 1;
+    FAS(&mServiceThreads); // -= 1;
 
     /* never return here */
     return ((void *)(0));

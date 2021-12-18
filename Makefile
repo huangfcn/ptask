@@ -3,7 +3,7 @@ all: $(LIB) simplehttp generator reader_writer blockq rwlock fiberbq pipe_ring
 
 AS=gcc
 CC=gcc
-CFLAGS= -D__SCHEDULER_USING_BLOCKQ__ -Iinclude -I. -Wall
+CFLAGS= -Iinclude -I. -Wall -march=native # -D__SCHEDULER_USING_BLOCKQ__ 
 
 INCFILES=include/task.h      \
          include/chain.h     \
@@ -16,10 +16,10 @@ INCFILES=include/task.h      \
 	$(AS) -c $< -o $@
 
 .objs/%.o: src/%.c $(INCFILES)
-	$(CC) $(CFLAGS) -O3 -march=native -c $< -o $@
+	$(CC) $(CFLAGS) -g -O3 -c $< -o $@
 
 .objs/%.o: %.c $(INCFILES)
-	$(CC) $(CFLAGS) -O3 -march=native -c $< -o $@
+	$(CC) $(CFLAGS) -g -O3 -c $< -o $@
 
 $(LIB): .objs/context.o .objs/task.o .objs/epoll.o
 	ar rvc $(LIB) .objs/context.o .objs/task.o .objs/epoll.o
