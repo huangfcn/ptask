@@ -237,9 +237,6 @@ void * pthread_scheduler(void * args);
 /* feed watchdog @ thread service maintask */
 int fiber_watchdog_tickle(int gap);
 
-/* set thread maintask (thread scheduling task) */
-bool fiber_set_thread_maintask(FibTCB * the_task);
-
 /* wait for events (events bitmask in, wait for any/all, and timeout) 
    post event to a task
 */ 
