@@ -18,7 +18,7 @@ void * blockq_pop (blockq_t * bq);
 void blockq_delete(blockq_t * bq);
 //////////////////////////////////////////////////////////
 
-#define NUM_PRODUCERS (6)
+#define NUM_PRODUCERS (8)
 #define NUM_CONSUMERS (8)
 
 typedef struct {
@@ -40,7 +40,7 @@ void * producer(void *arg)
         blockq_push(bq, object);
         printf("producer %2d sent %c.\n", ctx->index, val);
 
-        int timo = rand() % 3000 + 500;
+        int timo = rand() % 2000 + 450;
         fiber_usleep(timo * 1000);
     }
     return NULL;

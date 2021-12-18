@@ -40,8 +40,6 @@ __thread_local FibTCB * the_maintask = NULL;
 
 __thread_local int64_t nLocalFibTasks = 0;
 
-// #define the_maintask         (the_task->scheduler)
-
 /* global lists (need lock to access) */
 static volatile freelist_t *   global_freedlist;
 static volatile fibtcb_chain_t global_readylist;
@@ -344,7 +342,8 @@ static void * cpp_taskmain(FibTCB * the_task){
     FAS(&nGlobalFibTasks);
     nLocalFibTasks -= 1;
 
-    bool is_maintask = (the_task == the_maintask);
+    FibTCB * the_scheduler = the_task->scheduler;
+    bool is_maintask = (the_task == the_scheduler);
 
     /* callback on taskCleanup */
     if (the_task->onTaskCleanup){
@@ -369,8 +368,8 @@ static void * cpp_taskmain(FibTCB * the_task){
     if (is_maintask){ return (void *)(0); }
 
     /* switch to thread maintask */
-    current_task = the_maintask;
-    goto_context(&(the_maintask->regs));
+    current_task = the_scheduler;
+    goto_context(&(the_scheduler->regs));
 
     /* never reach here */
     return ((void *)(0));
@@ -428,12 +427,15 @@ FibTCB * fiber_create(
         current_task = the_task;
     }
 
+    /* load maintask to scheduler */
+    FibTCB * the_scheduler = the_maintask;
+
     /* increase number of fibtasks in system */
     FAA(&nGlobalFibTasks);
     nLocalFibTasks += 1;
 
     /* load balance when task first created */
-    if (unlikely((the_task != the_maintask) && (nLocalFibTasks > ((nGlobalFibTasks * 9 / 8 + mServiceThreads - 1) / mServiceThreads)))){
+    if (unlikely((the_task != the_scheduler) && (nLocalFibTasks > ((nGlobalFibTasks * 9 / 8 + mServiceThreads - 1) / mServiceThreads)))){
         /* put onto global ready list */
         spin_lock(&spinlock_readylist);
         _CHAIN_INSERT_TAIL(&global_readylist, the_task);
@@ -442,28 +444,27 @@ FibTCB * fiber_create(
         /* decrease number of local tasks */
         nLocalFibTasks -= 1;
 
-        // printf("thread %lu push task %p out\n", ((uint64_t)pthread_self()), the_task);
+        /* set scheduler to NULL */
+        the_task->scheduler = NULL;
+        the_task->scheddata = NULL;
+            // printf("thread %lu push task %p out\n", ((uint64_t)pthread_self()), the_task);
     }
     else{
         /* put next_task onto end of ready list */
-        _CHAIN_INSERT_TAIL(&local_readylist, the_task);
+        if (likely(the_task != the_scheduler)){
+            _CHAIN_INSERT_BEFORE(the_scheduler, the_task);
+        }
+        else{
+            _CHAIN_INSERT_TAIL(&local_readylist, the_task);
+        }
 
         /* set scheduler & scheddata */
-        the_task->scheduler = (the_maintask);
+        the_task->scheduler = (the_scheduler);
         the_task->scheddata = &localscp;
     }
     return the_task;
 }
 /////////////////////////////////////////////////////////////////////////
-
-
-bool fiber_set_thread_maintask(FibTCB * the_task){
-    the_maintask = the_task;
-    if (current_task == NULL){
-        current_task = the_task;
-    }
-    return true;
-}
 
 FibTCB * fiber_ident(){
     return current_task;
@@ -473,31 +474,32 @@ FibTCB * fiber_ident(){
 /* schedule to next task                                               */
 /////////////////////////////////////////////////////////////////////////
 static inline void fiber_sched(){
-
     /* find next ready task */
-    FibTCB * next_task = NULL, * the_task = current_task;
-    {
-        /* only get a task from local if possible */
-        next_task = _CHAIN_FIRST(&local_readylist);
-        if (likely(next_task != the_task)){
-            _CHAIN_REMOVE(next_task);
-        }
-        else{
-            /* cannot find a candidate, 
-               if and only if called from maintask and only maintask running,
-               go back to epoll 
-             */
-            return;
-        }
-    };
+    FibTCB * the_task = current_task;
+    FibTCB * the_next = _CHAIN_FIRST(&local_readylist);
+    if (likely(the_next != the_task)){
+        _CHAIN_REMOVE(the_next);
+    }
+    else{
+        /* cannot find a candidate, 
+         * if and only if called from maintask and only maintask running,
+         * go back to epoll 
+         */
+        return;
+    }
 
-    current_task = next_task;
+    current_task = the_next;
 
-    /* put next_task onto end of ready list */
-    _CHAIN_INSERT_TAIL(&local_readylist, next_task);
+    /* put the_next onto end of ready list */
+    if (likely(the_next != the_next->scheduler)){
+        _CHAIN_INSERT_BEFORE(the_next->scheduler, the_next);
+    }
+    else{
+        _CHAIN_INSERT_TAIL(&local_readylist, the_next);        
+    }
 
     /* swap context and jump to next task */
-    swap_context(&(the_task->regs), &(next_task->regs));
+    swap_context(&(the_task->regs), &(the_next->regs));
 }
 /////////////////////////////////////////////////////////////////////////
 
@@ -536,7 +538,7 @@ static inline int fiber_clrstate(FibTCB * the_task, uint64_t states){
     _CHAIN_REMOVE(the_task);
 
     /* insert into local ready list */
-    _CHAIN_INSERT_TAIL(&local_readylist, the_task);
+    _CHAIN_INSERT_BEFORE(the_task->scheduler, the_task);
     return (0);
 }
 /////////////////////////////////////////////////////////////////////////
@@ -607,7 +609,7 @@ uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout){
 
 /* post event (only used internally) */
 int fiber_event_post(FibTCB * the_task, uint64_t events_in){
-    /* check target task running on same thread (?) */
+    /* check if target task running on another thread */
     if (unlikely(the_task->scheduler != the_maintask)){
         return fiber_send_message_internal(
             the_task, 
@@ -1268,7 +1270,6 @@ static void * fiber_scheduler(void * args){
                 prev_stmp = curr_stmp;
             }
     
-
             /* workload balance between service threads */
             FibTCB * next_task = NULL;
             if (unlikely(nLocalFibTasks < ((nGlobalFibTasks + mServiceThreads - 1) / mServiceThreads))){
