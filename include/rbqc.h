@@ -24,8 +24,8 @@
         uint32_t size;                                                  \
         volatile int32_t ndat;                                          \
         pthread_mutex_t lock;                                           \
-        sem_t    sem_dat;                                               \
-        sem_t    sem_spc;                                               \
+        pthread_cond_t  full;                                           \
+        pthread_cond_t  empt;                                           \
         name##_rbqnode_t * data;                                        \
     } name##_t;
 
@@ -36,8 +36,8 @@
         uint32_t size;                                                  \
         volatile int32_t ndat;                                          \
         pthread_mutex_t lock;                                           \
-        sem_t    sem_dat;                                               \
-        sem_t    sem_spc;                                               \
+        pthread_cond_t  full;                                           \
+        pthread_cond_t  empt;                                           \
         name##_rbqnode_t data[(1 << _ORDER)];                           \
     } name##_t;
 
@@ -51,9 +51,9 @@
         rbq->tail = 0;                                                  \
         rbq->ndat = 0;                                                  \
                                                                         \
-        sem_init(&(rbq->sem_dat), 0, 0);                                \
-        sem_init(&(rbq->sem_spc), 0, (1 << _ORDER));                    \
         pthread_mutex_init(&(rbq->lock), NULL);                         \
+        pthread_cond_init (&(rbq->full), NULL);                         \
+        pthread_cond_init (&(rbq->empt), NULL);                         \
                                                                         \
         rbq->data = (name##_rbqnode_t*)_aligned_malloc(                 \
             rbq->size * sizeof(name##_rbqnode_t), 16                    \
@@ -73,11 +73,10 @@
         rbq->size = (1ULL << _ORDER);                                   \
         rbq->head = 0;                                                  \
         rbq->tail = 0;                                                  \
-        rbq->ndat = 0;                                                  \
                                                                         \
-        sem_init(&(rbq->sem_dat), 0, 0);                                \
-        sem_init(&(rbq->sem_spc), 0, (1 << _ORDER));                    \
         pthread_mutex_init(&(rbq->lock), NULL);                         \
+        pthread_cond_init (&(rbq->full), NULL);                         \
+        pthread_cond_init (&(rbq->empt), NULL);                         \
                                                                         \
         memset(                                                         \
             (void*)(rbq->data), 0, rbq->size * sizeof(name##_rbqnode_t) \
@@ -91,21 +90,20 @@
     {                                                                   \
         _aligned_free(rbq->data);                                       \
                                                                         \
-        sem_destroy(&(rbq->sem_dat));                                   \
-        sem_destroy(&(rbq->sem_spc));                                   \
         pthread_mutex_destroy(&(rbq->lock));                            \
     };
 
 #define RBQ_FREE_STATIC(name)                                           \
     static inline void name##_free(name##_t* rbq)                       \
     {                                                                   \
-        sem_destroy(&(rbq->sem_dat));                                   \
-        sem_destroy(&(rbq->sem_spc));                                   \
         pthread_mutex_destroy(&(rbq->lock));                            \
     };
 
 #define RBQ_TIMEDWAIT(name, us)                                         \
-    static inline int name##_timedwait(sem_t * sem)                     \
+    static inline int name##_timedwait(                                 \
+        pthread_cond_t  * cond,                                         \
+        pthread_mutex_t * mutex                                         \
+        )                                                               \
     {                                                                   \
         struct timespec ts; int s;                                      \
         if (clock_gettime(CLOCK_REALTIME, &ts) == -1) {                 \
@@ -116,7 +114,8 @@
         ts.tv_nsec += us * 1000ULL;                                     \
         ts.tv_sec += ts.tv_nsec / 1000000000ULL;                        \
         ts.tv_nsec %= 1000000000ULL;                                    \
-        while ((s = sem_timedwait(sem, &ts)) == -1 && errno == EINTR)   \
+        while ((s = pthread_cond_timedwait(cond, mutex, &ts)) == -1 &&  \
+               (errno == EINTR))                                        \
             continue;       /* Restart if interrupted by handler */     \
                                                                         \
         if (s == -1) {                                                  \
@@ -151,16 +150,18 @@
         name##_t* rbq, const type * pdata                               \
     )                                                                   \
     {                                                                   \
-        sem_wait(&(rbq->sem_spc));                                      \
         pthread_mutex_lock(&(rbq->lock));                               \
+        while (rbq->ndat >= rbq->size){                                 \
+            pthread_cond_wait(&(rbq->full), &(rbq->lock));              \
+        }                                                               \
+                                                                        \
         name##_rbqnode_t* pnode = rbq->data + rbq->head;                \
         copyfunc(pdata, pnode);                                         \
         rbq->head = (rbq->head + 1) & (rbq->size - 1);                  \
         rbq->ndat = (rbq->ndat + 1);                                    \
+        pthread_cond_signal (&(rbq->empt));                             \
         pthread_mutex_unlock(&(rbq->lock));                             \
                                                                         \
-        /* done - update status */                                      \
-        sem_post(&(rbq->sem_dat));                                      \
         return true;                                                    \
     };
 
@@ -170,19 +171,22 @@
         name##_t* rbq, type * pdata                                     \
     )                                                                   \
     {                                                                   \
-        if (name##_timedwait(&(rbq->sem_dat)) != 0){                    \
-            return false;                                               \
+        pthread_mutex_lock(&(rbq->lock));                               \
+        if (rbq->ndat == 0){                                            \
+            name##_timedwait(&(rbq->empt), &(rbq->lock));               \
+            if (rbq->ndat == 0){                                        \
+                pthread_mutex_unlock(&(rbq->lock));                     \
+                return false;                                           \
+            }                                                           \
         }                                                               \
                                                                         \
-        pthread_mutex_lock(&(rbq->lock));                               \
         name##_rbqnode_t* pnode = rbq->data + rbq->tail;                \
         copyfunc(pnode, pdata);                                         \
         rbq->tail = (rbq->tail + 1) & (rbq->size - 1);                  \
         rbq->ndat = (rbq->ndat - 1);                                    \
+        pthread_cond_signal (&(rbq->full));                             \
         pthread_mutex_unlock(&(rbq->lock));                             \
                                                                         \
-        /* done - update status */                                      \
-        sem_post(&(rbq->sem_spc));                                      \
         return true;                                                    \
     };
 

@@ -17,8 +17,9 @@ extern "C" {
 #endif
 
 #define MAX_LOCAL_FREED_TASKS       ( 128)
-#define MAX_EPOLL_EVENTS_PER_THREAD (8192)
 #define TCB_INCREASE_SIZE_AT_EMPTY  (  64)
+
+#define MAX_EPOLL_EVENTS_PER_THREAD (8192)
 #define MAX_TASK_LOCALDATAS         (   4)
 
 #define FIBER_STACKSIZE_MIN         (8192)
@@ -112,10 +113,6 @@ struct FibTCB{
     /* Task Local Storage */
     uint64_t  taskLocalStorages[MAX_TASK_LOCALDATAS];
 
-    /* callback before & after switching a thread */
-    bool      (*  preSwitchingThread)(FibTCB *);
-    bool      (* postSwitchingThread)(FibTCB *);
-
     /* on task initialization & deinit */
     bool      (* onTaskStartup)(FibTCB *);
     bool      (* onTaskCleanup)(FibTCB *);
@@ -129,6 +126,13 @@ typedef struct freelist_t freelist_t;
 
 struct schedmsgq_t;
 typedef struct schedmsgq_t schedmsgq_t;
+typedef struct schedmsgnode_t {
+   int32_t type;
+   int32_t code;
+   void *  data;
+   void *  user;
+   int64_t valu;
+} schedmsgnode_t;
 
 struct FibSCP {
     FibTCB      *  taskonrun;
@@ -227,16 +231,13 @@ void fiber_usleep(int usec);
  */
 FibTCB * fiber_sched_yield();
 
-/* scheduler thread */
+/* service thread (scheduler) entry point*/
 void * pthread_scheduler(void * args);
 ///////////////////////////////////////////////////////////////////
 
 ///////////////////////////////////////////////////////////////////
 /* service thread maintask related functions                     */
 ///////////////////////////////////////////////////////////////////
-/* feed watchdog @ thread service maintask */
-int fiber_watchdog_tickle(int gap);
-
 /* wait for events (events bitmask in, wait for any/all, and timeout) 
    post event to a task
 */ 
@@ -322,14 +323,10 @@ static inline uint64_t fiber_get_localdata(FibTCB * the_task, int index){
 
 static inline bool fiber_install_callbacks(
     FibTCB * the_task,
-    bool (*  preSwitchingThread)(FibTCB *),
-    bool (* postSwitchingThread)(FibTCB *),
     bool (* onTaskStartup)(FibTCB *      ),
     bool (* onTaskCleanup)(FibTCB *      )    
     )
 {
-    the_task->preSwitchingThread  = preSwitchingThread;
-    the_task->postSwitchingThread = postSwitchingThread;
     the_task->onTaskStartup       = onTaskStartup;
     the_task->onTaskCleanup       = onTaskCleanup;
 

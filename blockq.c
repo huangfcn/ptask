@@ -18,8 +18,8 @@ void * blockq_pop (blockq_t * bq);
 void blockq_delete(blockq_t * bq);
 //////////////////////////////////////////////////////////
 
-#define NUM_PRODUCERS (8)
-#define NUM_CONSUMERS (8)
+#define NUM_PRODUCERS (8000000)
+#define NUM_CONSUMERS (8000000)
 
 typedef struct {
     blockq_t * bq;
@@ -28,20 +28,28 @@ typedef struct {
 
 context_t ctxProducers[NUM_PRODUCERS], ctxConsumers[NUM_CONSUMERS];
 
+static volatile uint64_t nPosted = 0ULL, nRecved = 0ULL; 
 void * producer(void *arg)
 {
     context_t * ctx = (context_t *)arg;
     blockq_t  * bq  = ctx->bq;
+    
+    int index     = ctx->index;
+    char   val    = 'A' + index;
+    char * object = (void *)(int64_t)(val);
     while (true) {
-        int i = rand() % 26;
-
-        char   val  = 'A' + i;
-        char * object = (void *)(int64_t)(val);
+        // int i = rand() % 26;
+        // char   val  = 'A' + i;
+        // char * object = (void *)(int64_t)(val);
         blockq_push(bq, object);
-        printf("producer %2d sent %c.\n", ctx->index, val);
+        // putchar('+');putchar(val);
+        // if ((index & 8191) == 0)
+        //     printf("producer %2d sent %c.\n", ctx->index, val);
 
-        int timo = rand() % 2000 + 450;
-        fiber_usleep(timo * 1000);
+        fiber_sched_yield();
+        // int timo = rand() % 2000 + 450;
+        // fiber_usleep(timo * 1000);
+        FAA(&nPosted);
     }
     return NULL;
 }
@@ -50,11 +58,20 @@ void *consumer(void *arg)
 {
     context_t * ctx = (context_t *)arg;
     blockq_t  * bq  = ctx->bq;
+
+    // int index = ctx->index;
     while (true) {
-        char val = (int64_t)blockq_pop(bq);
-        printf("consumer %2d received %c.\n", ctx->index, val);
-        int timo = rand() % 2000 + 400;
-        fiber_usleep(timo * 1000);
+        // char val = (int64_t)
+
+        blockq_pop(bq);
+        // putchar(val);
+        // if ((index & 8191) == 4095)
+        //     printf("consumer %2d received %c.\n", ctx->index, val);
+
+        fiber_sched_yield();
+        // int timo = rand() % 2000 + 450;
+        // fiber_usleep(timo * 1000);
+        FAA(&nRecved);
     }
     return NULL;
 }
@@ -63,14 +80,25 @@ void *consumer(void *arg)
 bool initializeTasks(void * args)
 {
     blockq_t *bq = (blockq_t *)args;
+    int n = (NUM_PRODUCERS < NUM_CONSUMERS) ? (NUM_PRODUCERS) : (NUM_CONSUMERS);
 
-    for (int i = 0; i < NUM_PRODUCERS; ++i){
+    for (int i = 0; i < n; ++i){
+        ctxProducers[i].index = i;
+        ctxProducers[i].bq    = bq;
+        fiber_create(&producer, &ctxProducers[i], NULL, FIBER_STACKSIZE_MIN);
+        
+        ctxConsumers[i].index = i;
+        ctxConsumers[i].bq    = bq;
+        fiber_create(&consumer, &ctxConsumers[i], NULL, FIBER_STACKSIZE_MIN);
+    }
+
+    for (int i = n; i < NUM_PRODUCERS; ++i){
         ctxProducers[i].index = i;
         ctxProducers[i].bq    = bq;
         fiber_create(&producer, &ctxProducers[i], NULL, FIBER_STACKSIZE_MIN);
     }
 
-    for (int i = 0; i < NUM_CONSUMERS; ++i){
+    for (int i = n; i < NUM_CONSUMERS; ++i){
         ctxConsumers[i].index = i;
         ctxConsumers[i].bq    = bq;
         fiber_create(&consumer, &ctxConsumers[i], NULL, FIBER_STACKSIZE_MIN);
@@ -102,7 +130,7 @@ bool initializeTasks2(void * args)
 int main(){
     FiberGlobalStartup();
 
-    blockq_t *bq = blockq_new(128);
+    blockq_t *bq = blockq_new(1024);
 
     /* run another thread */
     fibthread_args_t args = {
@@ -111,6 +139,10 @@ int main(){
     };
 
     pthread_t tid;
+
+    /* create some service threads and wait it running */
+    pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
+    pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
     pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
 
     fibthread_args_t args2 = {
@@ -118,8 +150,12 @@ int main(){
       .args = (void *)(bq),
     };
 
-    pthread_scheduler(&args2);
+    pthread_create(&tid, NULL, pthread_scheduler, &args2); sleep(1);
 
+    while (true){
+        sleep(10);
+        printf("message posted = %16lu, message received = %16lu\n", nPosted, nRecved);
+    }
     return (0);
 }
 

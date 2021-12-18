@@ -10,12 +10,12 @@
 #include "fiberq.h"
 
 #define copyint(from, to) do {*to = *from;} while(0)
-FIBERQ_PROTOTYPE_STATIC(fiberbq, int, copyint, FIBER_TIMEOUT_INFINITE, 128);
+FIBERQ_PROTOTYPE_STATIC(fiberbq, int, copyint, FIBER_TIMEOUT_INFINITE, 8);
 
 static fiberbq_t bq;
 
-#define NUM_PRODUCERS   8
-#define NUM_CONSUMERS   8
+#define NUM_PRODUCERS   (8)
+#define NUM_CONSUMERS   (8)
 
 // producer is fast
 void *producer(void *arg)
@@ -27,10 +27,12 @@ void *producer(void *arg)
 
         int val = 'A' + i;
         fiberbq_push(the_q, &val);
-        printf("producer %2d: sent %c\n", index, val);
+        // if ((index & 8191) == 0)
+            printf("producer %2d: sent %c\n", index, val);
 
-        int timo = rand() % 2500 + 450;
+        int timo = rand() % 2500 + 500;
         fiber_usleep(timo * 1000);
+        // fiber_sched_yield();
     }
     return NULL;
 }
@@ -43,9 +45,11 @@ void *consumer(void *arg)
     while (true) {
         int val;
         fiberbq_pop(the_q, &val);
-        printf("consumer %2d: received %c\n", index, val);
-        int timo = rand() % 3000 + 500;
+        // if ((index & 8191) == 4095)
+            printf("consumer %2d: received %c\n", index, val);
+        int timo = rand() % 2500 + 500;
         fiber_usleep(timo * 1000);
+        // fiber_sched_yield();
     }
     return NULL;
 }
@@ -53,10 +57,16 @@ void *consumer(void *arg)
 /* create a fully loaded thread, it will push loading to other threads */
 bool initializeTasks(void * args)
 {
-    for (int64_t i = 0; i < NUM_PRODUCERS; ++i)
+    int n = (NUM_PRODUCERS < NUM_CONSUMERS) ? (NUM_PRODUCERS) : (NUM_CONSUMERS);
+    for (int64_t i = 0; i < n; ++i){
+        fiber_create(&producer, (void *)i, NULL, 8192);
+        fiber_create(&consumer, (void *)i, NULL, 8192);
+    }
+
+    for (int64_t i = n; i < NUM_PRODUCERS; ++i)
         fiber_create(&producer, (void *)i, NULL, 8192);
 
-    for (int64_t i = 0; i < NUM_CONSUMERS; ++i)
+    for (int64_t i = n; i < NUM_CONSUMERS; ++i)
         fiber_create(&consumer, (void *)i, NULL, 8192);
 
     return true;
@@ -74,7 +84,7 @@ bool initializeTasks2(void * args)
     return true;
 }
 
-int main(){
+int main(int argc, char ** argv){
     FiberGlobalStartup();
 
     fiberbq_init(&bq);
@@ -86,7 +96,10 @@ int main(){
     };
 
     pthread_t tid;
-    /* create a service thread and wait it running */
+
+    /* create some service threads and wait it running */
+    pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
+    pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
     pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
 
     fibthread_args_t args2 = {

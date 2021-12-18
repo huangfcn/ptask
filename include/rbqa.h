@@ -136,7 +136,7 @@
         copyfunc(pdata, &(pnode->object));                              \
                                                                         \
         /* done - update status */                                      \
-        pnode->status = STATUS_FULL;                                    \
+        CAS32(&(pnode->status), STATUS_FILL, STATUS_FULL);              \
                                                                         \
         return true;                                                    \
     };
@@ -215,7 +215,7 @@
         copyfunc(&(pnode->object), pdata);                              \
                                                                         \
         /* done - update status */                                      \
-        pnode->status = STATUS_EMPT;                                    \
+        CAS32(&(pnode->status), STATUS_READ, STATUS_EMPT);              \
                                                                         \
         /* return - data */                                             \
         return true;                                                    \
