@@ -33,7 +33,8 @@ int main(){
 
     /* run another thread */
     fibthread_args_t args = {
-      .init_func = initializeTasks,
+      .threadStartup = initializeTasks,
+      .threadCleanup = NULL,
       .args = (void *)(0),
     };
     pthread_scheduler(&args);

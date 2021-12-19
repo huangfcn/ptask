@@ -35,14 +35,11 @@ void * producer(void *arg)
     blockq_t  * bq  = ctx->bq;
     
     int index     = ctx->index;
-    char   val    = 'A' + index;
-    char * object = (void *)(int64_t)(val);
     while (true) {
-        // int i = rand() % 26;
-        // char   val  = 'A' + i;
-        // char * object = (void *)(int64_t)(val);
+        int    i      = index % 26; // rand() % 26;
+        char   val    = 'A' + i;
+        char * object = (void *)(int64_t)(val);
         blockq_push(bq, object);
-        // putchar('+');putchar(val);
         // if ((index & 8191) == 0)
         //     printf("producer %2d sent %c.\n", ctx->index, val);
 
@@ -61,10 +58,7 @@ void *consumer(void *arg)
 
     // int index = ctx->index;
     while (true) {
-        // char val = (int64_t)
-
-        blockq_pop(bq);
-        // putchar(val);
+        char val = (int64_t)blockq_pop(bq);
         // if ((index & 8191) == 4095)
         //     printf("consumer %2d received %c.\n", ctx->index, val);
 
@@ -107,50 +101,24 @@ bool initializeTasks(void * args)
     return true;
 }
 
-/* create idle thread to accept loading from other threads */
-bool initializeTasks2(void * args)
-{
-    // blockq_t *bq = (blockq_t *)args;
-
-    // for (int i = 0; i < NUM_PRODUCERS; ++i){
-    //     ctxProducers[i].index = i;
-    //     ctxProducers[i].bq    = bq;
-    //     fiber_create(&producer, &ctxProducers[i], NULL, FIBER_STACKSIZE_MIN);
-    // }
-
-    // for (int i = 0; i < NUM_CONSUMERS; ++i){
-    //     ctxConsumers[i].index = i;
-    //     ctxConsumers[i].bq    = bq;
-    //     fiber_create(&consumer, &ctxConsumers[i], NULL, FIBER_STACKSIZE_MIN);
-    // }
-
-    return true;
-}
-
 int main(){
     FiberGlobalStartup();
 
     blockq_t *bq = blockq_new(1024);
 
-    /* run another thread */
-    fibthread_args_t args = {
-      .init_func = initializeTasks2,
-      .args = (void *)(bq),
-    };
-
     pthread_t tid;
-
     /* create some service threads and wait it running */
-    pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
-    pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
-    pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
+    pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
+    pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
+    pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
 
-    fibthread_args_t args2 = {
-      .init_func = initializeTasks,
+    fibthread_args_t args = {
+      .threadStartup = initializeTasks,
+      .threadCleanup = NULL,
       .args = (void *)(bq),
     };
 
-    pthread_create(&tid, NULL, pthread_scheduler, &args2); sleep(1);
+    pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
 
     while (true){
         sleep(10);

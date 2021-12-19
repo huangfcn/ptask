@@ -113,7 +113,8 @@ int main(int argc, char** argv)
     FiberGlobalStartup();
     /* run another thread */
     fibthread_args_t args = {
-      .init_func = initializeTasks,
+      .threadStartup = initializeTasks,
+      .threadCleanup = NULL,
       .args = (void *)(passes),
     };
     pthread_scheduler(&args);

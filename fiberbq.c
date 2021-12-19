@@ -89,25 +89,19 @@ int main(int argc, char ** argv){
 
     fiberbq_init(&bq);
 
-    /* run another thread */
-    fibthread_args_t args = {
-      .init_func = initializeTasks2,
-      .args = (void *)(&bq),
-    };
-
     pthread_t tid;
-
     /* create some service threads and wait it running */
-    pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
-    pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
-    pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
+    pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
+    pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
+    pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
 
-    fibthread_args_t args2 = {
-      .init_func = initializeTasks,
+    fibthread_args_t args = {
+      .threadStartup = initializeTasks,
+      .threadCleanup = NULL,
       .args = (void *)(&bq),
     };
 
-    pthread_scheduler(&args2);
+    pthread_scheduler(&args);
 
     return (0);
 }

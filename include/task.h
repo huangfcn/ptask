@@ -124,8 +124,6 @@ struct FibTCB{
 struct freelist_t;
 typedef struct freelist_t freelist_t;
 
-struct schedmsgq_t;
-typedef struct schedmsgq_t schedmsgq_t;
 typedef struct schedmsgnode_t {
    int32_t type;
    int32_t code;
@@ -133,6 +131,9 @@ typedef struct schedmsgnode_t {
    void *  user;
    int64_t valu;
 } schedmsgnode_t;
+
+struct schedmsgq_t;
+typedef struct schedmsgq_t schedmsgq_t;
 
 struct FibSCP {
     FibTCB      *  taskonrun;
@@ -275,8 +276,9 @@ void goto_contxt2(void *        );
 void asm_taskmain(              );
 //////////////////////////////////
 
-typedef struct fibthread_args_s {
-    bool (*init_func)(void *);
+typedef struct fibthread_args_t {
+    bool (*threadStartup)(void *);
+    bool (*threadCleanup)(void *);
     void * args;
 } fibthread_args_t;
 

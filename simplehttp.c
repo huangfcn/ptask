@@ -254,7 +254,8 @@ int main(int argc, char* argv[])
     /* run another thread */
     int64_t portnum = atoi(argv[1]);
     fibthread_args_t args = {
-      .init_func = initializeTask,
+      .threadStartup = initializeTask,
+      .threadCleanup = NULL,
       .args = (void *)(portnum),
     };
     pthread_scheduler(&args);

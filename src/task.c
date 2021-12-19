@@ -1222,8 +1222,7 @@ __thread_local schedmsgq_t schedmsgq;
 static void * fiber_scheduler(void * args){
     /* user initialization function */
     fibthread_args_t * pargs = (fibthread_args_t *)args;
-    if (!pargs->init_func(pargs->args)){
-        // pthread_exit(-1);
+    if (pargs && pargs->threadStartup && !pargs->threadStartup(pargs->args)){
         return ((void *)(0));
     }
     
