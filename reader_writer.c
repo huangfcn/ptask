@@ -7,7 +7,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 
-#include "libfiber.h"
+#include "task.h"
 
 #define MAXTHREAD 8  /* define # readers */
 

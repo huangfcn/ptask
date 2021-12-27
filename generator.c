@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 
-#include "libfiber.h"
+#include "task.h"
 
 void * generator(void * args){
     for (int i = 0; i < 1000; ++i){

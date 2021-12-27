@@ -2,7 +2,7 @@
 #include <unistd.h>
 #include <stdlib.h>
 
-#include "libfiber.h"
+#include "task.h"
 
 ///////////////////////////////////////////////////////////////////////////////
 /* RWLOCK implementation with mutex & CV                                     */

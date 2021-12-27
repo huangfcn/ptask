@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include <stdbool.h>
 
-#include "libfiber.h"
+#include "task.h"
 
 #ifndef __FIBERQ_MPMC_H__
 #define __FIBERQ_MPMC_H__

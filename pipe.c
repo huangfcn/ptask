@@ -234,7 +234,7 @@ static void cond_destroy(cond_t* c)
 
 #else  /* fiber */
 
-#include "libfiber.h"
+#include "task.h"
 
 #define mutex_t fiber_mutex_t
 #define cond_t  fiber_cond_t

@@ -6,7 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
-#include "libfiber.h"
+#include "task.h"
 #include "fiberq.h"
 
 #define copyint(from, to) do {*to = *from;} while(0)
