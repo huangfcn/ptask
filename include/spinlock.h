@@ -17,8 +17,8 @@ extern "C" {
 #endif
 
 typedef struct {
-    volatile int32_t lock;
-    volatile int32_t pads;
+    volatile int8_t lock;
+    volatile int8_t pads[7];
 } CACHE_ALIGN_POST spinlock;
 
 #define SPINLOCK_ATTR static __inline __attribute__((always_inline, no_instrument_function))
@@ -30,7 +30,7 @@ SPINLOCK_ATTR void spin_init(spinlock *s){
     s->lock = 0;
 }
 
-#if (0)
+#if (1)
 SPINLOCK_ATTR char __testandset(spinlock *p)
 {
     char readval = 0;

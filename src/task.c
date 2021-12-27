@@ -929,7 +929,6 @@ bool fiber_mutex_unlock(FibMutex * pmutex){
         return (true);
     }
     else{
-    	#if (1)
     	/* decrease & increase */
     	FAS(getLocalFibTasksPtr(the_first));
     	FAA(getLocalFibTasksPtr(the_task ));
@@ -939,8 +938,6 @@ bool fiber_mutex_unlock(FibMutex * pmutex){
         
         /* clear the block state */
         fiber_clrstate(the_first, STATES_WAITFOR_MUTEX);
-        return (true);
-        #endif
 
         // pushIntoBackupList(the_first);
 
@@ -1369,22 +1366,23 @@ static void * fiber_scheduler(void * args){
             }
         }
 
-        /* exhaust all fibers */
+        /* exhaust all ready fibers */
         while (_CHAIN_FIRST(&local_readylist) != _CHAIN_LAST(&local_readylist)) 
         {
             fiber_sched_yield();
         }
 
-        __usleep__(3);
+        /* nothing to run, sleep for a while if come to here */
+        __usleep__(10);
     }
 }
 
 void * pthread_scheduler(void * args){
-    /* initialize thread environment */
+    /* initialize thread execution environment */
     FiberThreadStartup();
 
     /* one service thread joined */
-    FAA(&mServiceThreads); // += 1;
+    FAA(&mServiceThreads);
 
     /* create maintask (reuse thread's stack) */
     struct {} C;
@@ -1396,7 +1394,7 @@ void * pthread_scheduler(void * args){
     goto_contxt2(&(the_task->regs));
 
     /* one service thread left */
-    FAS(&mServiceThreads); // -= 1;
+    FAS(&mServiceThreads);
 
     /* never return here */
     return ((void *)(0));
