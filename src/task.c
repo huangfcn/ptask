@@ -1090,7 +1090,6 @@ bool fiber_sem_post(FibSemaphore * psem){
         return (true);
     }
     else{
-    	#if (1)
     	/* decrease number of tasks running on target threads */
     	FAS(getLocalFibTasksPtr(the_first));
     	FAA(getLocalFibTasksPtr(the_task ));
@@ -1100,8 +1099,7 @@ bool fiber_sem_post(FibSemaphore * psem){
     	the_first->scheddata = the_task->scheddata;
 
         _CHAIN_INSERT_BEFORE(the_task->scheduler, the_first);
-        #endif
-
+        
         // pushIntoBackupList(the_first);
 
     	/* push to global ready list */
@@ -1239,7 +1237,6 @@ bool fiber_cond_signal(FibCondition * pcond){
         return (true);
     }
     else{
-    	#if (1)
     	/* decrease number of tasks running on target threads */
     	FAS(getLocalFibTasksPtr(the_first));
     	FAA(getLocalFibTasksPtr(the_task ));
@@ -1249,9 +1246,7 @@ bool fiber_cond_signal(FibCondition * pcond){
     	the_first->scheddata = the_task->scheddata;
 
         _CHAIN_INSERT_BEFORE(the_task->scheduler, the_first);
-        return (true);
-        #endif
-
+        
         // pushIntoBackupList(the_first);
 
     	/* push to global ready list */
@@ -1306,7 +1301,6 @@ bool fiber_cond_broadcast(FibCondition * pcond){
             _CHAIN_INSERT_BEFORE(the_task->scheduler, the_tcb);
         }
         else{
-    	    #if (1)
     	    /* decrease number of tasks running on target threads */
         	FAS(getLocalFibTasksPtr(the_tcb ));
         	FAA(getLocalFibTasksPtr(the_task));
@@ -1316,8 +1310,6 @@ bool fiber_cond_broadcast(FibCondition * pcond){
         	the_tcb->scheddata = the_task->scheddata;
 
         	_CHAIN_INSERT_BEFORE(the_task->scheduler, the_tcb);
-        	return (true);
-            #endif
 
         	/* decreasing number of tasks running in target thread */
         	// FAS(getLocalFibTasksPtr(the_tcb));
@@ -1383,7 +1375,7 @@ static void * fiber_scheduler(void * args){
             fiber_sched_yield();
         }
 
-        __usleep__(10);
+        __usleep__(3);
     }
 }
 
