@@ -15,7 +15,6 @@ void * generator_maintask(void * args){
 
     for (int i = 0; i < 1000; ++i){
         fiber_sched_yield();
-
         int64_t code = fiber_resume(the_gen);
         printf("code = %ld\n", code);
     }

@@ -91,9 +91,9 @@ int main(int argc, char ** argv){
 
     pthread_t tid;
     /* create some service threads and wait it running */
-    pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
-    pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
-    pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
+    // pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
+    // pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
+    // pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
 
     fibthread_args_t args = {
       .threadStartup = initializeTasks,

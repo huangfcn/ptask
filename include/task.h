@@ -16,6 +16,8 @@
 extern "C" {
 #endif
 
+#define MAX_GLOBAL_GROUPS           (   8)
+
 #define MAX_LOCAL_FREED_TASKS       ( 128)
 #define TCB_INCREASE_SIZE_AT_EMPTY  (  64)
 
@@ -88,7 +90,11 @@ struct FibTCB{
     uint32_t  stacksize;
 
     /* task state (READY/SUSPEND/SLEEP/WAIT) */
-    uint32_t state;
+    volatile uint32_t state;
+
+    /* group */
+    uint32_t group;
+    uint32_t fut32;
 
     /*  yieldCode / exitCode */
     uint64_t  yieldCode;
@@ -98,6 +104,7 @@ struct FibTCB{
     int       delta_interval;
 
     /* events waiting/post */
+    spinlock  eventlock;
     int       waitingOptions;
     uint64_t  pendingEvents;
     uint64_t  waitingEvents;
@@ -139,13 +146,15 @@ struct FibSCP {
     FibTCB      *  taskonrun;
     schedmsgq_t *  schedmsgq;
     freelist_t  *  freedlist;
-    fibtcb_chain_t blocklist;
     fibtcb_chain_t readylist;
 
     fibtcb_chain_t wadoglist;
-
+    spinlock       wadoglock;
+    
     int            freedlist_size;
-    int            readylist_size;
+    int            group;
+
+    int64_t        nLocalFibTasks;
 
     struct {
         void *   stackbase;

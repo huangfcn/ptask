@@ -315,10 +315,9 @@ struct name {                                                           \
 } while (0)
 
 #define _CHAIN_EXTRACT_FIRST(_the_list)                                 \
-   (((_chain_node_t *)(_the_list)->first)->next ?                       \
-      (_the_list)->first : NULL);                                       \
+   (_CHAIN_IS_EMPTY(_the_list) ? (NULL) : (_the_list)->first);          \
                                                                         \
-   if (((_chain_node_t *)(_the_list)->first)->next) {                   \
+   if (!_CHAIN_IS_EMPTY(_the_list)) {                                   \
                                                                         \
        _chain_node_t * next;                                            \
        _chain_node_t * previous;                                        \

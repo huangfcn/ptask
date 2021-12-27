@@ -17,14 +17,20 @@ extern "C" {
 #endif
 
 typedef struct {
-    volatile char lock;
-} spinlock;
+    volatile int32_t lock;
+    volatile int32_t pads;
+} CACHE_ALIGN_POST spinlock;
 
 #define SPINLOCK_ATTR static __inline __attribute__((always_inline, no_instrument_function))
 
 /* Pause instruction to prevent excess processor bus usage */
 #define cpu_relax() asm volatile("pause\n": : :"memory")
 
+SPINLOCK_ATTR void spin_init(spinlock *s){
+    s->lock = 0;
+}
+
+#if (0)
 SPINLOCK_ATTR char __testandset(spinlock *p)
 {
     char readval = 0;
@@ -35,10 +41,6 @@ SPINLOCK_ATTR char __testandset(spinlock *p)
             : "r" (1)
             : "cc");
     return readval;
-}
-
-SPINLOCK_ATTR void spin_init(spinlock *s){
-    s->lock = 0;
 }
 
 SPINLOCK_ATTR void spin_lock(spinlock *lock)
@@ -57,6 +59,12 @@ SPINLOCK_ATTR void spin_unlock(spinlock *s)
 {
     s->lock = 0;
 }
+
+#else
+#define spin_lock(p) while(!CAS32(&((p)->lock), 0, 1)){cpu_relax();}
+#define spin_unlock(p) do {(p)->lock = 0;} while(0)
+#endif
+
 
 #define SPINLOCK_INITIALIZER { 0 }
 
