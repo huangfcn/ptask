@@ -3,12 +3,6 @@
 
 #include "sysdef.h"
 
-#ifdef __SCHEDULER_USING_BLOCKQ__
-#include "rbqb.h"
-#else
-#include "rbqa.h"
-#endif
-
 #include "chain.h"
 #include "spinlock.h"
 
