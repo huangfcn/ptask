@@ -47,7 +47,7 @@ __thread_local FibTCB * the_maintask = NULL;
 #define getLocalReadyLock(the_task) (&((the_task)->scheddata->readylock))
 
 #if (ACTIVATE_TASKS_TARGET_READYLIST)
-#define localReadyListAcquire(the_task) do {spin_lock  (getLocalReadyLock(the_task));} while(0)
+#define localReadyListAcquire(the_task) do {spin_lock  (getLocalReadyLock(the_task));} while (0)
 #define localReadyListRelease(the_task) do {spin_unlock(getLocalReadyLock(the_task));} while (0)
 #else
 #define localReadyListAcquire(the_task)
