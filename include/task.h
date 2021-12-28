@@ -285,31 +285,6 @@ typedef struct fibthread_args_t {
     bool (*threadCleanup)(void *);
     void * args;
 } fibthread_args_t;
-
-///////////////////////////////////////////////////////////////////
-/* message queue of each service thread                          */
-///////////////////////////////////////////////////////////////////
-#define MSG_TYPE_SCHEDULER       (0x00000001)
-#define MSG_TYPE_USERPOSTD       (0xF0000000)
-
-// scheduler
-#define MSG_CODE_ACTIVATED       (0x00000001)
-#define MSG_CODE_POSTEVENT       (0x00000002)
-
-int fiber_send_message_internal(
-    FibTCB * the_task, 
-    uint32_t type, 
-    uint32_t msg, 
-    void   * user, 
-    uint64_t valu
-);
-
-int fiber_send_message(
-    FibTCB * the_task,
-    uint32_t msg, 
-    void   * user, 
-    uint64_t valu
-);
 ///////////////////////////////////////////////////////////////////
 
 ///////////////////////////////////////////////////////////////////

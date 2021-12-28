@@ -1492,14 +1492,4 @@ void * pthread_scheduler(void * args){
     /* never return here */
     return ((void *)(0));
 }
-
-/* send message to another task (internally using only) */
-int fiber_send_message_internal(FibTCB * the_task, uint32_t type, uint32_t msgc, void * user, uint64_t valu){
-    return 0;
-};
-
-/* user send message to another task */
-int fiber_send_message(FibTCB * the_task, uint32_t msgc, void * user, uint64_t valu){
-    return 0;
-};
 /////////////////////////////////////////////////////////////////////////
