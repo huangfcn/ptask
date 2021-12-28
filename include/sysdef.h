@@ -61,7 +61,7 @@ typedef const char * lpcstr_t;
 ///////////////////////////////////////////////////////////////////////////////
 #ifdef __GNUC__
 #define __force_noinline __attribute__ ((noinline)) 
-#define __forceinline    __attribute__ ((always_inline))
+#define __forceinline    __inline __attribute__((always_inline, no_instrument_function))
 #else
 #define __force_noinline __declspec(noinline)
 #endif

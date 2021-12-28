@@ -67,9 +67,11 @@ __thread_local FibTCB * the_maintask = NULL;
 } while (0)
 /////////////////////////////////////////////////////////////////////////
 
-/* global lists (need lock to access) */
-static volatile freelist_t * global_freedlist;
-static fibchain_t global_readylist[MAX_GLOBAL_GROUPS];
+/////////////////////////////////////////////////////////////////////////
+/* global variables                                                    */
+/////////////////////////////////////////////////////////////////////////
+static volatile freelist_t * global_freedlist = NULL;
+static fibchain_t global_readylist[MAX_GLOBAL_GROUPS] = {0};
 
 static spinlock_t spinlock_freedlist = {0};
 static spinlock_t spinlock_readylist[MAX_GLOBAL_GROUPS] = {0};
@@ -77,15 +79,16 @@ static spinlock_t spinlock_readylist[MAX_GLOBAL_GROUPS] = {0};
 static volatile struct {
     void *   stackbase;
     uint32_t stacksize;
-} global_cached_stack[64];
-static volatile uint64_t global_cached_stack_mask;
-static spinlock_t spinlock_cached_stack;
+} global_cached_stack[64] = {0};
+static volatile uint64_t global_cached_stack_mask = 0ULL;
+static spinlock_t spinlock_cached_stack = {0};
 
 static volatile int64_t mServiceThreads = 0, nGlobalFibTasks = 0;
 
 static sem_t __sem_null;
+/////////////////////////////////////////////////////////////////////////
 
-static inline void pushIntoGlobalReadyList(FibTCB * the_task){
+static __forceinline void pushIntoGlobalReadyList(FibTCB * the_task){
     int group = the_task->group;
     fibchain_t * the_chain = &global_readylist[group];
     spinlock_t * the_lock  = &spinlock_readylist[group];
@@ -97,7 +100,7 @@ static inline void pushIntoGlobalReadyList(FibTCB * the_task){
     spin_unlock(the_lock);
 };
 
-static inline FibTCB * popFromGlobalReadyList(FibTCB * the_scheduler, int group){
+static __forceinline FibTCB * popFromGlobalReadyList(FibTCB * the_scheduler, int group){
     fibchain_t * the_chain = &global_readylist[group];
     spinlock_t * the_lock  = &spinlock_readylist[group];
     FibTCB * the_task = NULL;
@@ -170,30 +173,19 @@ static inline int __usleep__(int64_t us)
 /* SYSTEM/THREAD level data initialization                             */
 /////////////////////////////////////////////////////////////////////////
 bool FiberGlobalStartup(){
-    /* inialize tcb freedlist */
-    global_freedlist = NULL;
-    spin_init(&spinlock_freedlist);
-
     /* initialize global ready list */
     for (int i = 0; i < MAX_GLOBAL_GROUPS; ++i){ 
-        _CHAIN_INIT_EMPTY(&global_readylist[i]); 
-        spin_init(&spinlock_readylist[i]); 
+        _CHAIN_INIT_EMPTY(&global_readylist[i]);
     }
-
-    /* statistical */
-    mServiceThreads       = 0;
-    nGlobalFibTasks       = 0;
-
-    global_cached_stack_mask = ~0ULL;
-    spin_init(&spinlock_cached_stack);
 
     /* create a null semaphore for timeout */
     sem_init(&__sem_null, 0, 0);
 
+    /* all other global variables statically initialized */
     return true;
 };
 
-static inline FibSCP * fibscp_alloc()
+static __forceinline FibSCP * fibscp_alloc()
 {
     FibSCP * the_scp= ((FibSCP *)malloc(sizeof(FibSCP)));
     if (the_scp == NULL){return NULL;};
@@ -400,7 +392,7 @@ static inline uint8_t * fiber_stackcache_get(uint32_t * stacksize){
 /*     thread_maintask --> asm_taskmain --> maintask -->               */
 /*     user init_func  --> scheduler                                   */
 /////////////////////////////////////////////////////////////////////////
-static inline uint32_t hash6432shift(uint64_t key)
+static __forceinline uint32_t hash6432shift(uint64_t key)
 {
   key = (~key) + (key << 18); // key = (key << 18) - key - 1;
   key = key ^ (key >> 31);
