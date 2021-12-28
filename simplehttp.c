@@ -94,7 +94,7 @@ void * requestHandler(void* args)
     /* The event loop */
     while (true)
     {
-        int n = fiber_epoll_wait(events, MAXEVENTS, 2000);
+        int n = fiber_epoll_wait(events, MAXEVENTS, FIBER_TIMEOUT_INFINITE);
         assert(n <= 1);
 
         if (n == 1) {
@@ -182,7 +182,7 @@ void* server(void* args)
     /* The event loop */
     while (1)
     {
-        int n = fiber_epoll_wait(events, MAXEVENTS, 1000);
+        int n = fiber_epoll_wait(events, MAXEVENTS, FIBER_TIMEOUT_INFINITE);
         assert(n <= 1);
 
         if (n == 1){

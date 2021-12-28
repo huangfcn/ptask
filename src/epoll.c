@@ -24,31 +24,8 @@ static int64_t fiber_epoll(int fd, volatile bool * bQuit){
         /* merge events */
         for (int i = 0; i < rc; ++i){
             EventContext * ctx = (EventContext *)(epoll_events[i].data.ptr);
-            EventContextControlBlock * pcb = (EventContextControlBlock *)fiber_get_localdata(ctx->tcb, 0);
-
             ctx->events_o = epoll_events[i].events;
-            pcb->tmpEventMasks |= (1 << (ctx->index));
-            // printf("Event: fd = %d, tcb = %p, events = %04x\n", ctx->fd, ctx->tcb, ctx->events_o);
-        }
-
-        /* post events */
-        for (int i = 0; i < rc; ++i){
-            EventContext * ctx = (EventContext *)(epoll_events[i].data.ptr);
-            EventContextControlBlock * pcb = (EventContextControlBlock *)fiber_get_localdata(ctx->tcb, 0);
-
-            if (pcb->tmpEventMasks == 0ULL){
-                continue;
-            }
-
-            fiber_send_message_internal(
-                ctx->tcb, 
-                MSG_TYPE_SCHEDULER,
-                MSG_CODE_POSTEVENT,
-                NULL,
-                pcb->tmpEventMasks
-                );
-
-            pcb->tmpEventMasks = 0ULL;
+            fiber_event_post(ctx->tcb, (1 << (ctx->index)));
         }
     }
 

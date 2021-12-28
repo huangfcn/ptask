@@ -105,7 +105,7 @@ bool initializeTasks(void * args)
 int main(){
     FiberGlobalStartup();
 
-    blockq_t *bq = blockq_new(1024);
+    blockq_t * bq = blockq_new(1024);
 
     fibthread_args_t args = {
       .threadStartup = initializeTasks,

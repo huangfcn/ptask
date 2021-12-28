@@ -683,6 +683,9 @@ uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout){
         the_task->state &= (~STATES_TRANSIENT);
     }
 
+    /* schedule to another task */
+    fiber_sched();
+
     return (the_task->seizedEvents);
 }
 
@@ -718,6 +721,11 @@ int fiber_event_post(FibTCB * the_task, uint64_t events_in){
         /* extract from watchdog list if needed */
         if (likely(the_task->state & STATES_WAIT_TIMEOUTB)){
         	fiber_watchdog_remove(the_task);
+        }
+
+        /* still on global readyq (?) */
+        if (unlikely(the_task->scheduler == NULL)){
+        	return 0;
         }
 
         FibTCB * the_scheduler = the_maintask;
