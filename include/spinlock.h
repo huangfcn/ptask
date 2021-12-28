@@ -3,7 +3,7 @@
 
 #ifdef __SPINLOCK_USING_MUTEX__
 #include <pthread.h>
-typedef pthread_mutex_t spinlock;
+typedef pthread_mutex_t spinlock_t;
 
 #define spin_init(pmutex)  pthread_mutex_init(pmutex, NULL)
 #define spin_lock(pmutex)  pthread_mutex_lock(pmutex)
@@ -19,19 +19,19 @@ extern "C" {
 typedef struct {
     volatile int8_t lock;
     volatile int8_t pads[7];
-} CACHE_ALIGN_POST spinlock;
+} CACHE_ALIGN_POST spinlock_t;
 
 #define SPINLOCK_ATTR static __inline __attribute__((always_inline, no_instrument_function))
 
 /* Pause instruction to prevent excess processor bus usage */
 #define cpu_relax() asm volatile("pause\n": : :"memory")
 
-SPINLOCK_ATTR void spin_init(spinlock *s){
+SPINLOCK_ATTR void spin_init(spinlock_t *s){
     s->lock = 0;
 }
 
 #if (1)
-SPINLOCK_ATTR char __testandset(spinlock *p)
+SPINLOCK_ATTR char __testandset(spinlock_t *p)
 {
     char readval = 0;
 
@@ -43,7 +43,7 @@ SPINLOCK_ATTR char __testandset(spinlock *p)
     return readval;
 }
 
-SPINLOCK_ATTR void spin_lock(spinlock *lock)
+SPINLOCK_ATTR void spin_lock(spinlock_t *lock)
 {
     while (__testandset(lock)) {
         /* Should wait until lock is free before another try.
@@ -55,7 +55,7 @@ SPINLOCK_ATTR void spin_lock(spinlock *lock)
     }
 }
 
-SPINLOCK_ATTR void spin_unlock(spinlock *s)
+SPINLOCK_ATTR void spin_unlock(spinlock_t *s)
 {
     s->lock = 0;
 }
@@ -68,7 +68,7 @@ SPINLOCK_ATTR void spin_unlock(spinlock *s)
 
 #define SPINLOCK_INITIALIZER { 0 }
 
-SPINLOCK_ATTR void spin_destroy(spinlock *s){
+SPINLOCK_ATTR void spin_destroy(spinlock_t *s){
     ;
 }
 

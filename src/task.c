@@ -46,17 +46,17 @@ __thread_local FibTCB * the_maintask = NULL;
 
 /* global lists (need lock to access) */
 static volatile freelist_t * global_freedlist;
-static fibtcb_chain_t global_readylist[MAX_GLOBAL_GROUPS];
+static fibchain_t global_readylist[MAX_GLOBAL_GROUPS];
 
-static spinlock spinlock_freedlist = {0};
-static spinlock spinlock_readylist[MAX_GLOBAL_GROUPS] = {0};
+static spinlock_t spinlock_freedlist = {0};
+static spinlock_t spinlock_readylist[MAX_GLOBAL_GROUPS] = {0};
 
 static volatile struct {
     void *   stackbase;
     uint32_t stacksize;
 } global_cached_stack[64];
 static volatile uint64_t global_cached_stack_mask;
-static spinlock spinlock_cached_stack;
+static spinlock_t spinlock_cached_stack;
 
 static volatile int64_t mServiceThreads = 0, nGlobalFibTasks = 0;
 
@@ -64,8 +64,8 @@ static sem_t __sem_null;
 
 static inline void pushIntoGlobalReadyList(FibTCB * the_task){
 	int group = the_task->group;
-	fibtcb_chain_t * the_chain = &global_readylist[group];
-	spinlock * the_lock = &spinlock_readylist[group];
+	fibchain_t * the_chain = &global_readylist[group];
+	spinlock_t * the_lock  = &spinlock_readylist[group];
 
 	spin_lock(the_lock);
 	the_task->scheduler = NULL;
@@ -75,8 +75,8 @@ static inline void pushIntoGlobalReadyList(FibTCB * the_task){
 };
 
 static inline FibTCB * popFromGlobalReadyList(int group){
-	fibtcb_chain_t * the_chain = &global_readylist[group];
-	spinlock * the_lock = &spinlock_readylist[group];
+	fibchain_t * the_chain = &global_readylist[group];
+	spinlock_t * the_lock  = &spinlock_readylist[group];
 	FibTCB * the_task = NULL;
 	spin_lock(the_lock);
 	the_task = _CHAIN_EXTRACT_FIRST(the_chain);
@@ -93,8 +93,8 @@ static inline FibTCB * popFromGlobalReadyList(int group){
 
 #if (0)
 static inline void pushIntoBackupList(FibTCB * the_task){
-	fibtcb_chain_t * the_chain = &(the_task->scheddata->backplist);
-	spinlock * the_lock = &(the_task->scheddata->backplock);
+	fibchain_t * the_chain = &(the_task->scheddata->backplist);
+	spinlock_t * the_lock  = &(the_task->scheddata->backplock);
 
 	spin_lock(the_lock);
 	/* make it ready */
@@ -608,9 +608,6 @@ static inline int fiber_clrstate(FibTCB * the_task, uint64_t states){
 /////////////////////////////////////////////////////////////////////////
 /* yield/resume                                                        */
 /////////////////////////////////////////////////////////////////////////
-#define FIBER_TASK_EVENT_YIELD  (1ULL << 63)
-#define FIBER_TASK_EVENT_RESUME (1ULL << 62)
-
 FibTCB * fiber_yield(uint64_t code){
 	FibTCB * the_task = current_task;
     the_task->yieldCode = code;
@@ -672,7 +669,7 @@ uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout){
     the_task->waitingOptions = options;
 
     /* have to wait */
-    the_task->state |= STATES_WAITFOR_EVENT;
+    the_task->state |= (((timeout > 0) ? STATES_TRANSIENT : 0) | STATES_WAITFOR_EVENT);
 
     /* extract from ready list */
     _CHAIN_REMOVE(the_task);
@@ -682,6 +679,8 @@ uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout){
     if (likely(timeout > 0)){
         the_task->delta_interval = timeout;
         fiber_watchdog_insert(the_task);
+
+        the_task->state &= (~STATES_TRANSIENT);
     }
 
     return (the_task->seizedEvents);
@@ -710,6 +709,11 @@ int fiber_event_post(FibTCB * the_task, uint64_t events_in){
 
         the_task->state &= (~STATES_WAITFOR_EVENT);
         spin_unlock(&(the_task->eventlock));
+
+        /* waiting for timeout operation finished */
+        while (unlikely(the_task->state & STATES_TRANSIENT)){
+        	cpu_relax();
+        }
 
         /* extract from watchdog list if needed */
         if (likely(the_task->state & STATES_WAIT_TIMEOUTB)){
@@ -763,8 +767,8 @@ void fiber_usleep(int usec){
 /* watchdog or timeout support                                         */
 /////////////////////////////////////////////////////////////////////////
 static inline int fiber_watchdog_insert(FibTCB * the_task){
-	spinlock * the_lock = &(the_task->scheddata->wadoglock);
-	fibtcb_chain_t * the_chain = &(the_task->scheddata->wadoglist);
+	spinlock_t * the_lock  = &(the_task->scheddata->wadoglock);
+	fibchain_t * the_chain = &(the_task->scheddata->wadoglist);
 	int delta_interval = the_task->delta_interval;
     
 	spin_lock(the_lock);
@@ -796,7 +800,7 @@ static inline int fiber_watchdog_insert(FibTCB * the_task){
 }
 
 static inline int fiber_watchdog_remove(FibTCB * the_task){
-	spinlock * the_lock = &(the_task->scheddata->wadoglock);
+	spinlock_t * the_lock = &(the_task->scheddata->wadoglock);
 	
 	spin_lock(the_lock);
 	if (the_task->state & STATES_WAIT_TIMEOUTB){
@@ -818,8 +822,8 @@ static inline int fiber_watchdog_remove(FibTCB * the_task){
 static inline int fiber_watchdog_tickle(int gap){
     FibTCB * the_task, * the_nxt;
 
-	spinlock * the_lock = &(local_wadoglock);
-	fibtcb_chain_t * the_chain = &local_wadoglist;
+	spinlock_t * the_lock  = &(local_wadoglock);
+	fibchain_t * the_chain = &(local_wadoglist);
 
 	spin_lock(the_lock);
     CHAIN_FOREACH_SAFE(the_task, the_chain, link, the_nxt){
@@ -1320,7 +1324,7 @@ bool fiber_cond_broadcast(FibCondition * pcond){
     FibTCB * the_task = current_task;
 
     /* collect all waiting tasks */
-    fibtcb_chain_t localchain;
+    fibchain_t localchain;
     _CHAIN_INIT_EMPTY(&localchain);
 
     FibTCB * the_tcb, * the_nxt;

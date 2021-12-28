@@ -69,7 +69,7 @@ typedef struct FibCTX{
     uint64_t    reg_rbp;    // 56
 } FibCTX;
 
-typedef CHAIN_HEAD(fibtcb_chain, FibTCB) fibtcb_chain_t;
+typedef CHAIN_HEAD(fibchain, FibTCB) fibchain_t;
 
 struct FibTCB{
     /* ready / suspend / free queue */
@@ -98,11 +98,12 @@ struct FibTCB{
     int       delta_interval;
 
     /* events waiting/post */
-    spinlock  eventlock;
-    int       waitingOptions;
-    uint64_t  pendingEvents;
-    uint64_t  waitingEvents;
-    uint64_t  seizedEvents;
+    int        waitingOptions;
+    uint64_t   pendingEvents;
+    uint64_t   waitingEvents;
+    uint64_t   seizedEvents;
+
+    spinlock_t eventlock;
 
     /* waiting mutex or semaphore */
     uint64_t  waitingObject;
@@ -140,10 +141,10 @@ struct FibSCP {
     FibTCB      *  taskonrun;
     schedmsgq_t *  schedmsgq;
     freelist_t  *  freedlist;
-    fibtcb_chain_t readylist;
+    fibchain_t     readylist;
 
-    fibtcb_chain_t wadoglist;
-    spinlock       wadoglock;
+    fibchain_t     wadoglist;
+    spinlock_t     wadoglock;
     
     int            freedlist_size;
     int            group;
@@ -161,20 +162,20 @@ typedef struct FiberMutex {
     volatile uint64_t holder;
     volatile uint32_t reentries;
 
-    spinlock       qlock;
-    fibtcb_chain_t waitq;
+    spinlock_t qlock;
+    fibchain_t waitq;
 } FibMutex;
 
 typedef struct FiberSemaphore {
-    spinlock       qlock;
-    fibtcb_chain_t waitq;
+    spinlock_t qlock;
+    fibchain_t waitq;
 
     volatile int64_t count;
 } FibSemaphore;
 
 typedef struct FiberCondition {
-    spinlock       qlock;
-    fibtcb_chain_t waitq;
+    spinlock_t qlock;
+    fibchain_t waitq;
 } FibCondition;
 
 typedef struct FibMsgQ {
