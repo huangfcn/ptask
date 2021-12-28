@@ -15,34 +15,45 @@
 
 #include "timestamp.h"
 
-#define ACTIVATE_TASKS_LOCAL_READYLIST (0)
-#define ACTIVATE_TASKS_GLOBL_READYLIST (1)
+#define ACTIVATE_TASKS_LOCALE_READYLIST (0)
+#define ACTIVATE_TASKS_GLOBAL_READYLIST (1)
+#define ACTIVATE_TASKS_TARGET_READYLIST (0)
 
 static inline int fiber_watchdog_insert(FibTCB * the_task);
 static inline int fiber_watchdog_remove(FibTCB * the_task);
-static inline int fiber_watchdog_tickle(int gap);
+static inline int fiber_watchdog_tickle(FibTCB * the_schd, int gap);
 
-typedef struct freelist_t {
-    struct freelist_t * next;
-} freelist_t;
+typedef struct freelist_t { struct freelist_t * next; } freelist_t;
 
-__thread_local FibSCP localscp;
-
-#define local_freedlist_size (localscp.freedlist_size)
-
-#define local_freedlist      (localscp.freedlist)
-#define local_readylist      (localscp.readylist)
-#define local_wadoglist      (localscp.wadoglist)
-#define local_wadoglock      (localscp.wadoglock)
-
-#define local_cached_stack_mask (localscp.cached_stack_mask)
-#define local_cached_stack      (localscp.cached_stack     )
-
+/////////////////////////////////////////////////////////////////////////
+/* local thread specific data                                          */
+/////////////////////////////////////////////////////////////////////////
 __thread_local FibTCB * current_task = NULL;
 __thread_local FibTCB * the_maintask = NULL;
 
-#define getLocalFibTasksPtr(the_task) ( (volatile int64_t *)(&((the_task)->scheddata->nLocalFibTasks)))
-#define getLocalFibTasksVal(the_task) (*(volatile int64_t *)(&((the_task)->scheddata->nLocalFibTasks)))
+#define getLocalFibTasksPtr(the_task) ( (volatile int32_t *)(&((the_task)->scheddata->nLocalFibTasks)))
+#define getLocalFibTasksVal(the_task) (*(volatile int32_t *)(&((the_task)->scheddata->nLocalFibTasks)))
+
+#define getLocalFreedSize(the_task) ((the_task)->scheddata->freedsize)
+#define getLocalFreedList(the_task) ((the_task)->scheddata->freedlist)
+
+#define getLocalWadogList(the_task) (&((the_task)->scheddata->wadoglist))
+#define getLocalWadogLock(the_task) (&((the_task)->scheddata->wadoglock))
+
+#define getLocalStackMask(the_task) ((the_task)->scheddata->cached_stack_mask)
+#define getLocalStackVect(the_task) ((the_task)->scheddata->cached_stack     )
+
+#define getLocalReadyList(the_task) (&((the_task)->scheddata->readylist))
+#define getLocalReadyLock(the_task) (&((the_task)->scheddata->readylock))
+
+#if (ACTIVATE_TASKS_TARGET_READYLIST)
+#define localReadyListAcquire(the_task) do {spin_lock  (getLocalReadyLock(the_task));} while(0)
+#define localReadyListRelease(the_task) do {spin_unlock(getLocalReadyLock(the_task));} while (0)
+#else
+#define localReadyListAcquire(the_task)
+#define localReadyListRelease(the_task)
+#endif
+/////////////////////////////////////////////////////////////////////////
 
 /* global lists (need lock to access) */
 static volatile freelist_t * global_freedlist;
@@ -91,19 +102,6 @@ static inline FibTCB * popFromGlobalReadyList(FibTCB * the_scheduler, int group)
     return the_task;
 };
 
-#if (0)
-static inline void pushIntoBackupList(FibTCB * the_task){
-    fibchain_t * the_chain = &(the_task->scheddata->backplist);
-    spinlock_t * the_lock  = &(the_task->scheddata->backplock);
-
-    spin_lock(the_lock);
-    /* make it ready */
-    the_task->state &= (~STATES_BLOCKED);
-    _CHAIN_INSERT_TAIL(the_chain, the_task);
-    spin_unlock(the_lock);
-};
-#endif
-
 static inline int __usleep__(int64_t us)    
 {                                                  
     struct timespec ts; int s;                     
@@ -120,8 +118,7 @@ static inline int __usleep__(int64_t us)
     }
 
     return (s == 0) ? (0) : ((errno == ETIMEDOUT) ? (+1) : (-1));
-}
-
+};
 /////////////////////////////////////////////////////////////////////////
 /* Macro Loop on Set Bit                                               */
 /////////////////////////////////////////////////////////////////////////
@@ -184,24 +181,19 @@ bool FiberGlobalStartup(){
     return true;
 };
 
-bool FiberThreadStartup(){
+static inline FibSCP * fibscp_alloc()
+{
+    FibSCP * the_scp= ((FibSCP *)malloc(sizeof(FibSCP)));
+    if (the_scp == NULL){return NULL;};
+
     /* local freedlist & readylist */
-    local_freedlist = NULL;
-    _CHAIN_INIT_EMPTY(&local_readylist);
-    
-    /* watch dog list */
-    CHAIN_INIT_EMPTY(&local_wadoglist, FibTCB, link);
-    spin_init(&local_wadoglock);
+    memset(the_scp, 0, sizeof(FibSCP));
 
-    local_freedlist_size = 0;
-    localscp.nLocalFibTasks = 0;
+    _CHAIN_INIT_EMPTY(&(the_scp->readylist));
+    _CHAIN_INIT_EMPTY(&(the_scp->wadoglist));
 
-    /* backup list */
-    // spin_init(&localscp.backplock);
-    // _CHAIN_INIT_EMPTY(&localscp.backplist);
-
-    local_cached_stack_mask = 0xFF;
-    return true;
+    the_scp->cached_stack_mask = 0xFF;
+    return the_scp;
 };
 /////////////////////////////////////////////////////////////////////////
 
@@ -209,11 +201,12 @@ bool FiberThreadStartup(){
 /* TCB alloc/free                                                      */
 /////////////////////////////////////////////////////////////////////////
 static inline void tcb_free(FibTCB * tcb){
+    FibTCB * the_scheduler = the_maintask;
     freelist_t * node = (freelist_t *)tcb;
-    if (likely(local_freedlist_size < MAX_LOCAL_FREED_TASKS)){
-        node->next = local_freedlist;
-        local_freedlist = node;
-        ++local_freedlist_size;
+    if (likely(getLocalFreedSize(the_scheduler) < MAX_LOCAL_FREED_TASKS)){
+        node->next = (freelist_t *)getLocalFreedList(the_scheduler);
+        getLocalFreedList(the_scheduler) = (void *)node;
+        getLocalFreedSize(the_scheduler) += 1;
     }
     else{
         spin_lock(&spinlock_freedlist);
@@ -224,11 +217,15 @@ static inline void tcb_free(FibTCB * tcb){
 };
 
 static inline FibTCB * tcb_alloc(){
-    if (likely(local_freedlist != NULL)){
-        FibTCB * tcb = (FibTCB *)local_freedlist;
-        local_freedlist = local_freedlist->next;
+    FibTCB * the_scheduler = the_maintask;
+    if (the_scheduler == NULL){
+        return ((FibTCB *)malloc(sizeof(FibTCB)));
+    }
 
-        --local_freedlist_size;
+    if (likely(getLocalFreedList(the_scheduler) != NULL)){
+        FibTCB * tcb = (FibTCB *)getLocalFreedList(the_scheduler);
+        getLocalFreedList(the_scheduler) = ((freelist_t *)getLocalFreedList(the_scheduler))->next;
+        getLocalFreedSize(the_scheduler) -= 1;
         return tcb;
     }
     else{
@@ -265,8 +262,9 @@ static inline bool fiber_stackcache_put(
     uint8_t * oldstack = NULL;
     uint32_t  oldsize  = 0;
 
+    FibTCB * the_scheduler = the_maintask;
     /* put into local cache first */
-    int index = __ffs32(local_cached_stack_mask);
+    int index = __ffs32(getLocalStackMask(the_scheduler));
     if (unlikely(index == 0)){
         spin_lock(&spinlock_cached_stack);
         index = __ffs64(global_cached_stack_mask);
@@ -285,18 +283,18 @@ static inline bool fiber_stackcache_put(
             u64 = (u64 >> 4) + (u64 >> 0);
             index =  u64 & 7;
 
-            oldstack = local_cached_stack[index].stackbase;
-            oldsize  = local_cached_stack[index].stacksize;
+            oldstack = getLocalStackVect(the_scheduler)[index].stackbase;
+            oldsize  = getLocalStackVect(the_scheduler)[index].stacksize;
 
-            local_cached_stack[index].stackbase = stackbase;
-            local_cached_stack[index].stacksize = stacksize;
+            getLocalStackVect(the_scheduler)[index].stackbase = stackbase;
+            getLocalStackVect(the_scheduler)[index].stacksize = stacksize;
         }
     }
     else{
         --index;
-        local_cached_stack_mask &= (~(1U << index));
-        local_cached_stack[index].stackbase = stackbase;
-        local_cached_stack[index].stacksize = stacksize;
+        getLocalStackMask(the_scheduler) &= (~(1U << index));
+        getLocalStackVect(the_scheduler)[index].stackbase = stackbase;
+        getLocalStackVect(the_scheduler)[index].stacksize = stacksize;
     }
 
     /* free old stack if needed */
@@ -308,12 +306,14 @@ static inline bool fiber_stackcache_put(
 }
 
 static inline uint8_t * fiber_stackcache_get(uint32_t * stacksize){
+    FibTCB * the_scheduler = the_maintask;
+
     /* find in local */
-    {
-        uint32_t mask = (~local_cached_stack_mask) & 0xFF;
+    if (the_scheduler) {
+        uint32_t mask = (~getLocalStackMask(the_scheduler)) & 0xFF;
         int      index = -1;
         #define callback_setlocalstack(p) do {                      \
-            if (local_cached_stack[p].stacksize >= (*stacksize)){   \
+            if (getLocalStackVect(the_scheduler)[p].stacksize >= (*stacksize)){   \
                 mask  = 0U;                                         \
                 index = p;                                          \
             }                                                       \
@@ -321,9 +321,9 @@ static inline uint8_t * fiber_stackcache_get(uint32_t * stacksize){
 
         callback_on_setbit(mask, callback_setlocalstack);
         if (index >= 0){
-            local_cached_stack_mask |= (1U << index);
-            *stacksize = local_cached_stack[index].stacksize;
-            return local_cached_stack[index].stackbase;
+            getLocalStackMask(the_scheduler) |= (1U << index);
+            *stacksize = getLocalStackVect(the_scheduler)[index].stacksize;
+            return getLocalStackVect(the_scheduler)[index].stackbase;
         }
     }
 
@@ -343,7 +343,6 @@ static inline uint8_t * fiber_stackcache_get(uint32_t * stacksize){
 
         callback_on_setbit(mask, callback_setglobalstack);
 
-           
         if (index >= 0){
             global_cached_stack_mask |= (1ULL << index);
 
@@ -422,8 +421,10 @@ static void * cpp_taskmain(FibTCB * the_task){
     }
 
     /* remove current task from ready list*/
+    localReadyListAcquire(the_task);
     _CHAIN_REMOVE(the_task);
-    
+    localReadyListRelease(the_task);
+
     /* free stack */
     if (the_task->stacksize & MASK_SYSTEM_STACK){
         /* cannot free at here, put into cache for next thread */
@@ -502,11 +503,12 @@ FibTCB * fiber_create(
     if (unlikely(the_maintask == NULL)){
         the_maintask = the_task;
         current_task = the_task;
-        the_maintask->scheddata = &(localscp);
+        the_task->scheddata = fibscp_alloc();
     }
 
     /* load maintask to scheduler */
     FibTCB * the_scheduler = the_maintask;
+    fibchain_t * the_chain = getLocalReadyList(the_scheduler);
 
     /* increase number of fibtasks in system */
     FAA(&nGlobalFibTasks);
@@ -525,12 +527,14 @@ FibTCB * fiber_create(
         FAA(getLocalFibTasksPtr(the_task));
 
         /* put next_task onto end of ready list */
+        localReadyListAcquire(the_task);
         if (likely(the_task != the_scheduler)){
             _CHAIN_INSERT_BEFORE(the_scheduler, the_task);
         }
         else {
-            _CHAIN_INSERT_TAIL(&local_readylist, the_task);
+            _CHAIN_INSERT_TAIL(the_chain, the_task);
         }
+        localReadyListRelease(the_task);
     }
     return the_task;
 }
@@ -545,12 +549,16 @@ FibTCB * fiber_ident(){
 /////////////////////////////////////////////////////////////////////////
 static inline void fiber_sched(){
     /* find next ready task */
-    FibTCB * the_task = current_task;
-    FibTCB * the_next = _CHAIN_FIRST(&local_readylist);
+    FibTCB * the_scheduler = the_maintask, * the_task = current_task;
+    fibchain_t * the_chain = getLocalReadyList(the_scheduler);
+
+    localReadyListAcquire(the_scheduler);
+    FibTCB * the_next = _CHAIN_FIRST(the_chain);
     if (unlikely(the_next == the_task)){
         /* cannot find a candidate, 
          * if and only if called from maintask and only maintask running,
          */
+        localReadyListRelease(the_scheduler);
         return;
     }
 
@@ -559,13 +567,14 @@ static inline void fiber_sched(){
     current_task = the_next;
 
     /* put the_next onto end of ready list */
-    if (likely(the_next != the_next->scheduler)){
-        _CHAIN_INSERT_BEFORE(the_next->scheduler, the_next);
+    if (likely(the_next != the_scheduler)){
+        _CHAIN_INSERT_BEFORE(the_scheduler, the_next);
     }
     else{
-        _CHAIN_INSERT_TAIL(&local_readylist, the_next);        
+        _CHAIN_INSERT_TAIL(the_chain, the_next);        
     }
-
+    localReadyListRelease(the_scheduler);
+    
     /* swap context and jump to next task */
     swap_context(&(the_task->regs), &(the_next->regs));
 }
@@ -579,28 +588,13 @@ static inline int fiber_setstate(FibTCB * the_task, uint64_t states){
     the_task->state |= states;
 
     /* extract from ready list */
+    localReadyListAcquire(the_task);
     _CHAIN_REMOVE(the_task);
+    localReadyListRelease(the_task);
 
     /* fiber_sched to next task */
     fiber_sched();
 
-    return (0);
-}
-
-static inline int fiber_clrstate(FibTCB * the_task, uint64_t states){
-    /* check those states are set (?) */
-    if (unlikely((the_task->state & states) == 0)){
-        return (0);
-    }
-
-    /* clear the state */
-    the_task->state &= (~states);
-    if (unlikely(the_task->state & STATES_BLOCKED)){
-        return (0);
-    }
-
-    /* insert into local ready list */
-    _CHAIN_INSERT_BEFORE(the_task->scheduler, the_task);
     return (0);
 }
 /////////////////////////////////////////////////////////////////////////
@@ -617,149 +611,35 @@ FibTCB * fiber_yield(uint64_t code){
 
 uint64_t fiber_resume(FibTCB * the_task){
     uint64_t yieldCode = the_task->yieldCode;
-    fiber_clrstate(the_task, STATES_SUSPENDED);
+    the_task->state &= (~STATES_SUSPENDED);
+
+    localReadyListAcquire(the_task);
+    _CHAIN_INSERT_BEFORE(the_task->scheduler, the_task);
+    localReadyListRelease(the_task);
+
     return (yieldCode);
 }
 
 __force_noinline FibTCB * fiber_sched_yield(){
-    FibTCB * the_task = current_task;
+    FibTCB * the_scheduler = the_maintask, * the_task = current_task;
+    fibchain_t * the_chain = getLocalReadyList(the_scheduler);
 
+    localReadyListAcquire(the_scheduler);
     /* move to end of ready list */
     _CHAIN_REMOVE(the_task);
 
-    if (unlikely(the_task == the_task->scheduler)){
-        _CHAIN_INSERT_TAIL(&local_readylist, the_task);
+    if (unlikely(the_task == the_scheduler)){
+        _CHAIN_INSERT_TAIL(the_chain, the_task);
     }
     else{
-        _CHAIN_INSERT_BEFORE(the_task->scheduler, the_task);
+        _CHAIN_INSERT_BEFORE(the_scheduler, the_task);
     }
+    localReadyListRelease(the_scheduler);
 
     /* fiber_sched to next task */
     fiber_sched();
 
     return (the_task);
-}
-/////////////////////////////////////////////////////////////////////////
-
-/////////////////////////////////////////////////////////////////////////
-/* wait/post events (only used internally)                             */
-/////////////////////////////////////////////////////////////////////////
-uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout){
-    FibTCB * the_task = current_task;
-    
-    spin_lock(&(the_task->eventlock));
-    /* check the pending events */
-    uint64_t seized_events = the_task->pendingEvents & events_in;
-    if (seized_events && ((seized_events == events_in) || (options & TASK_EVENT_WAIT_ANY))){
-        the_task->pendingEvents &= (~seized_events);
-        spin_unlock(&(the_task->eventlock));
-
-        return seized_events;
-    }
-
-    /* no wait, test only (?) */
-    if (unlikely(timeout == 0)){
-        spin_unlock(&(the_task->eventlock));
-
-        return 0ULL;
-    }
-
-    the_task->seizedEvents   = 0ULL;
-    the_task->waitingEvents  = events_in;
-    the_task->waitingOptions = options;
-
-    /* have to wait */
-    the_task->state |= (((timeout > 0) ? STATES_TRANSIENT : 0) | STATES_WAITFOR_EVENT);
-
-    /* extract from ready list */
-    _CHAIN_REMOVE(the_task);
-    spin_unlock(&(the_task->eventlock));
-
-    /* timeout set (?) */
-    if (likely(timeout > 0)){
-        the_task->delta_interval = timeout;
-        fiber_watchdog_insert(the_task);
-
-        the_task->state &= (~STATES_TRANSIENT);
-    }
-
-    /* schedule to another task */
-    fiber_sched();
-
-    return (the_task->seizedEvents);
-}
-
-/* post event (only used internally) */
-int fiber_event_post(FibTCB * the_task, uint64_t events_in){
-    /* get the event lock */
-    spin_lock(&(the_task->eventlock));
-
-    /* put onto pendingEvents */
-    the_task->pendingEvents |= events_in;
-    
-    /* waiting on events (?) */
-    if (unlikely((the_task->state & STATES_WAITFOR_EVENT) == 0)){
-        spin_unlock(&(the_task->eventlock));
-        return (0);
-    }
-
-    /* wakeup the task (?) */
-    uint64_t seized_events = the_task->pendingEvents & the_task->waitingEvents;
-    if (seized_events && ((seized_events == the_task->waitingEvents) || (the_task->waitingOptions & TASK_EVENT_WAIT_ANY))){
-        /* the one who first clear state will set new states & return values */
-        the_task->pendingEvents &= (~seized_events);
-        the_task->seizedEvents = seized_events;
-
-        the_task->state &= (~STATES_WAITFOR_EVENT);
-        spin_unlock(&(the_task->eventlock));
-
-        /* waiting for timeout operation finished */
-        while (unlikely(the_task->state & STATES_TRANSIENT)){
-            cpu_relax();
-        }
-
-        /* extract from watchdog list if needed */
-        if (likely(the_task->state & STATES_WAIT_TIMEOUTB)){
-            fiber_watchdog_remove(the_task);
-        }
-
-        /* still on global readyq (?) */
-        // if (unlikely(the_task->scheduler == NULL)){
-        //     return 0;
-        // }
-
-        FibTCB * the_scheduler = the_maintask;
-        if (the_task->scheduler == the_scheduler){
-            /* insert into current ready list (before scheduler) */
-            _CHAIN_INSERT_BEFORE(the_scheduler, the_task);
-        }
-        else{
-            #if (ACTIVATE_TASKS_LOCAL_READYLIST)
-            /* decrease & increase */
-            FAS(getLocalFibTasksPtr(the_task     ));
-            FAA(getLocalFibTasksPtr(the_scheduler));
-
-            the_task->scheduler = the_scheduler;
-            the_task->scheddata = the_scheduler->scheddata;
-        
-            /* clear the block state */
-            _CHAIN_INSERT_BEFORE(the_scheduler, the_task);
-            #endif
-
-            // pushIntoBackupList(the_first);
-
-            #if (ACTIVATE_TASKS_GLOBL_READYLIST)
-            /* push to global readylist */
-            FAS(getLocalFibTasksPtr(the_task));
-            pushIntoGlobalReadyList(the_task);
-            #endif          
-        }
-    }
-    else{
-        spin_unlock(&(the_task->eventlock));        
-    }
-
-    return (0);
 }
 
 void fiber_usleep(int usec){
@@ -827,11 +707,11 @@ static inline int fiber_watchdog_remove(FibTCB * the_task){
 }
 
 /* this functions ias called from thread maintask (scheduling task) */
-static inline int fiber_watchdog_tickle(int gap){
+static inline int fiber_watchdog_tickle(FibTCB * the_scheduler, int gap){
     FibTCB * the_task, * the_nxt;
 
-    spinlock_t * the_lock  = &(local_wadoglock);
-    fibchain_t * the_chain = &(local_wadoglist);
+    spinlock_t * the_lock  = getLocalWadogLock(the_scheduler);
+    fibchain_t * the_chain = getLocalWadogList(the_scheduler);
 
     spin_lock(the_lock);
     CHAIN_FOREACH_SAFE(the_task, the_chain, link, the_nxt){
@@ -854,7 +734,9 @@ static inline int fiber_watchdog_tickle(int gap){
                     _CHAIN_REMOVE(the_task);
 
                     /* always call from scheduler's thread */
+                    localReadyListAcquire(the_task);
                     _CHAIN_INSERT_BEFORE(the_task->scheduler, the_task);
+                    localReadyListRelease(the_task);
 
                 }
                 spin_unlock(&(psem->qlock));
@@ -866,7 +748,9 @@ static inline int fiber_watchdog_tickle(int gap){
                     the_task->state &= (~STATES_WAITFOR_EVENT);
 
                     /* always call from scheduler's thread */
+                    localReadyListAcquire(the_task);
                     _CHAIN_INSERT_BEFORE(the_task->scheduler, the_task);
+                    localReadyListRelease(the_task);
                 }
                 spin_unlock(&(the_task->eventlock));
             }
@@ -875,7 +759,9 @@ static inline int fiber_watchdog_tickle(int gap){
                 the_task->state &= (~STATES_IN_USLEEP);
 
                 /* always call from scheduler's thread */
+                localReadyListAcquire(the_task);
                 _CHAIN_INSERT_BEFORE(the_task->scheduler, the_task);
+                localReadyListRelease(the_task);
             }
 
             /* what happened (?) */
@@ -886,6 +772,132 @@ static inline int fiber_watchdog_tickle(int gap){
         }
     }
     spin_unlock(the_lock);
+
+    return (0);
+}
+/////////////////////////////////////////////////////////////////////////
+
+/////////////////////////////////////////////////////////////////////////
+/* wait/post events (only used internally)                             */
+/////////////////////////////////////////////////////////////////////////
+uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout){
+    FibTCB * the_task = current_task;
+    
+    spin_lock(&(the_task->eventlock));
+    /* check the pending events */
+    uint64_t seized_events = the_task->pendingEvents & events_in;
+    if (seized_events && ((seized_events == events_in) || (options & TASK_EVENT_WAIT_ANY))){
+        the_task->pendingEvents &= (~seized_events);
+        spin_unlock(&(the_task->eventlock));
+
+        return seized_events;
+    }
+
+    /* no wait, test only (?) */
+    if (unlikely(timeout == 0)){
+        spin_unlock(&(the_task->eventlock));
+
+        return 0ULL;
+    }
+
+    the_task->seizedEvents   = 0ULL;
+    the_task->waitingEvents  = events_in;
+    the_task->waitingOptions = options;
+
+    /* have to wait */
+    the_task->state |= (((timeout > 0) ? STATES_TRANSIENT : 0) | STATES_WAITFOR_EVENT);
+
+    /* extract from ready list */
+    localReadyListAcquire(the_task);
+    _CHAIN_REMOVE(the_task);
+    localReadyListRelease(the_task);
+
+    spin_unlock(&(the_task->eventlock));
+
+    /* timeout set (?) */
+    if (likely(timeout > 0)){
+        the_task->delta_interval = timeout;
+        fiber_watchdog_insert(the_task);
+
+        the_task->state &= (~STATES_TRANSIENT);
+    }
+
+    /* schedule to another task */
+    fiber_sched();
+
+    return (the_task->seizedEvents);
+}
+
+/* post event (only used internally) */
+int fiber_event_post(FibTCB * the_task, uint64_t events_in){
+    /* get the event lock */
+    spin_lock(&(the_task->eventlock));
+
+    /* put onto pendingEvents */
+    the_task->pendingEvents |= events_in;
+    
+    /* waiting on events (?) */
+    if (unlikely((the_task->state & STATES_WAITFOR_EVENT) == 0)){
+        spin_unlock(&(the_task->eventlock));
+        return (0);
+    }
+
+    /* wakeup the task (?) */
+    uint64_t seized_events = the_task->pendingEvents & the_task->waitingEvents;
+    if (seized_events && ((seized_events == the_task->waitingEvents) || (the_task->waitingOptions & TASK_EVENT_WAIT_ANY))){
+        /* the one who first clear state will set new states & return values */
+        the_task->pendingEvents &= (~seized_events);
+        the_task->seizedEvents = seized_events;
+
+        the_task->state &= (~STATES_WAITFOR_EVENT);
+        spin_unlock(&(the_task->eventlock));
+
+        /* waiting for timeout operation finished */
+        while (unlikely(the_task->state & STATES_TRANSIENT)){
+            cpu_relax();
+        }
+
+        /* extract from watchdog list if needed */
+        if (likely(the_task->state & STATES_WAIT_TIMEOUTB)){
+            fiber_watchdog_remove(the_task);
+        }
+
+        FibTCB * the_scheduler = the_maintask;
+        if (the_task->scheduler == the_scheduler){
+            /* insert into current ready list (before scheduler) */
+            localReadyListAcquire(the_scheduler);
+            _CHAIN_INSERT_BEFORE(the_scheduler, the_task);
+            localReadyListRelease(the_scheduler);
+        }
+        else{
+            /* put onto local ready queue */
+            #if (ACTIVATE_TASKS_LOCALE_READYLIST)
+            FAS(getLocalFibTasksPtr(the_task     ));
+            FAA(getLocalFibTasksPtr(the_scheduler));
+
+            the_task->scheduler = the_scheduler;
+            the_task->scheddata = the_scheduler->scheddata;
+        
+            _CHAIN_INSERT_BEFORE(the_scheduler, the_task);
+            #endif
+
+            /* put onto global ready queue */
+            #if (ACTIVATE_TASKS_GLOBAL_READYLIST)
+            FAS(getLocalFibTasksPtr(the_task));
+            pushIntoGlobalReadyList(the_task);
+            #endif
+
+            /* put onto target thread's ready queue */
+            #if (ACTIVATE_TASKS_TARGET_READYLIST)
+            localReadyListAcquire(the_task);
+            _CHAIN_INSERT_BEFORE(the_task->scheduler, the_task);
+            localReadyListRelease(the_task);
+            #endif
+        }
+    }
+    else{
+        spin_unlock(&(the_task->eventlock));        
+    }
 
     return (0);
 }
@@ -926,7 +938,9 @@ bool fiber_mutex_lock(FibMutex * pmutex){
     the_task->state |= STATES_WAITFOR_MUTEX;
 
     /* extract from ready list */
+    localReadyListAcquire(the_task);
     _CHAIN_REMOVE(the_task);
+    localReadyListRelease(the_task);
 
     /* put onto waiting list */
     _CHAIN_INSERT_TAIL(&(pmutex->waitq), the_task);
@@ -970,31 +984,34 @@ bool fiber_mutex_unlock(FibMutex * pmutex){
         the_first->state &= (~STATES_WAITFOR_MUTEX);
 
         /* put onto ready list */
+        localReadyListAcquire(the_task);
         _CHAIN_INSERT_BEFORE(the_task->scheduler, the_first);
+        localReadyListRelease(the_task);
         return (true);
     }
     else{
-        #if (ACTIVATE_TASKS_LOCAL_READYLIST)
-        /* decrease & increase */
+        /* put onto local ready queue */
+        #if (ACTIVATE_TASKS_LOCALE_READYLIST)
         FAS(getLocalFibTasksPtr(the_first));
         FAA(getLocalFibTasksPtr(the_task ));
 
         the_first->scheduler = the_task->scheduler;
         the_first->scheddata = the_task->scheddata;
-        
-        /* clear the block state */
-        the_first->state &= (~STATES_WAITFOR_MUTEX);
 
-        /* put onto ready list */
         _CHAIN_INSERT_BEFORE(the_task->scheduler, the_first);
         #endif
 
-        // pushIntoBackupList(the_first);
-
-        #if (ACTIVATE_TASKS_GLOBL_READYLIST)
-        /* push to global readylist */
+        /* put onto global ready queue */
+        #if (ACTIVATE_TASKS_GLOBAL_READYLIST)
         FAS(getLocalFibTasksPtr(the_first));
         pushIntoGlobalReadyList(the_first);
+        #endif
+
+        /* put onto target thread's ready queue */
+        #if (ACTIVATE_TASKS_TARGET_READYLIST)
+        localReadyListAcquire(the_first);
+        _CHAIN_INSERT_BEFORE(the_first->scheduler, the_first);
+        localReadyListRelease(the_first);
         #endif
 
         return true;
@@ -1036,7 +1053,9 @@ bool fiber_sem_wait(FibSemaphore * psem){
     }
 
     /* extract from local ready list */
+    localReadyListAcquire(the_task);
     _CHAIN_REMOVE(the_task);
+    localReadyListRelease(the_task);
 
     /* insert into semaphore's waitq */
     _CHAIN_INSERT_TAIL(&(psem->waitq), the_task);
@@ -1076,7 +1095,9 @@ bool fiber_sem_timedwait(FibSemaphore * psem, int timeout){
     }
 
     /* extract from local ready list */
+    localReadyListAcquire(the_task);
     _CHAIN_REMOVE(the_task);
+    localReadyListRelease(the_task);
 
     /* insert into semaphore's waitq */
     _CHAIN_INSERT_TAIL(&(psem->waitq), the_task);
@@ -1142,28 +1163,35 @@ bool fiber_sem_post(FibSemaphore * psem){
 
     if (the_first->scheduler == the_task->scheduler){
         /* clear the block state */
+        localReadyListAcquire(the_task);
         _CHAIN_INSERT_BEFORE(the_task->scheduler, the_first);
+        localReadyListRelease(the_task);
+
         return (true);
     }
     else{
-        #if (ACTIVATE_TASKS_LOCAL_READYLIST)
-        /* decrease number of tasks running on target threads */
+        /* put onto local ready queue */
+        #if (ACTIVATE_TASKS_LOCALE_READYLIST)
         FAS(getLocalFibTasksPtr(the_first));
         FAA(getLocalFibTasksPtr(the_task ));
 
-        /* insert into local queue */
         the_first->scheduler = the_task->scheduler;
         the_first->scheddata = the_task->scheddata;
 
         _CHAIN_INSERT_BEFORE(the_task->scheduler, the_first);
         #endif
 
-        // pushIntoBackupList(the_first);
-
-        #if (ACTIVATE_TASKS_GLOBL_READYLIST)
-        /* push to global ready list */
+        /* put onto global ready queue */
+        #if (ACTIVATE_TASKS_GLOBAL_READYLIST)
         FAS(getLocalFibTasksPtr(the_first));
         pushIntoGlobalReadyList(the_first);
+        #endif
+
+        /* put onto target thread's ready queue */
+        #if (ACTIVATE_TASKS_TARGET_READYLIST)
+        localReadyListAcquire(the_first);
+        _CHAIN_INSERT_BEFORE(the_first->scheduler, the_first);
+        localReadyListRelease(the_first);
         #endif
 
         return true;
@@ -1194,7 +1222,9 @@ bool fiber_cond_wait(FibCondition * pcond, FibMutex * pmutex){
     spin_lock(&(pcond->qlock));
 
     /* extract from local ready list */
+    localReadyListAcquire(the_task);
     _CHAIN_REMOVE(the_task);
+    localReadyListRelease(the_task);
 
     /* insert into semaphore's waitq */
     _CHAIN_INSERT_TAIL(&(pcond->waitq), the_task);
@@ -1231,7 +1261,9 @@ bool fiber_cond_timedwait(FibCondition * pcond, FibMutex * pmutex, int timeout){
     }
 
     /* extract from local ready list */
+    localReadyListAcquire(the_task);
     _CHAIN_REMOVE(the_task);
+    localReadyListRelease(the_task);
 
     /* insert into condition's waitq */
     _CHAIN_INSERT_TAIL(&(pcond->waitq), the_task);
@@ -1302,30 +1334,36 @@ bool fiber_cond_signal(FibCondition * pcond){
 
     if (the_first->scheduler == the_task->scheduler){
         /* clear the block state */
+        localReadyListAcquire(the_task);
         _CHAIN_INSERT_BEFORE(the_task->scheduler, the_first);
+        localReadyListRelease(the_task);
+
         return (true);
     }
     else{
-        #if (ACTIVATE_TASKS_LOCAL_READYLIST)
-        /* decrease number of tasks running on target threads */
+        /* put onto local ready queue */
+        #if (ACTIVATE_TASKS_LOCALE_READYLIST)
         FAS(getLocalFibTasksPtr(the_first));
         FAA(getLocalFibTasksPtr(the_task ));
 
-        /* insert into local queue */
         the_first->scheduler = the_task->scheduler;
         the_first->scheddata = the_task->scheddata;
 
         _CHAIN_INSERT_BEFORE(the_task->scheduler, the_first);
         #endif
 
-        #if (ACTIVATE_TASKS_GLOBL_READYLIST)
-        /* push to global ready list */
+        /* put onto global ready queue */
+        #if (ACTIVATE_TASKS_GLOBAL_READYLIST)
         FAS(getLocalFibTasksPtr(the_first));
         pushIntoGlobalReadyList(the_first);
         #endif
 
-        // push onto second readyq on target thread
-        // pushIntoBackupList(the_first);
+        /* put onto target thread's ready queue */
+        #if (ACTIVATE_TASKS_TARGET_READYLIST)
+        localReadyListAcquire(the_first);
+        _CHAIN_INSERT_BEFORE(the_first->scheduler, the_first);
+        localReadyListRelease(the_first);
+        #endif
 
         return true;
     }
@@ -1377,29 +1415,34 @@ bool fiber_cond_broadcast(FibCondition * pcond){
 
         if (likely(the_tcb->scheduler == the_task->scheduler)){
             /* clear the block state */
+            localReadyListAcquire(the_task);
             _CHAIN_INSERT_BEFORE(the_task->scheduler, the_tcb);
+            localReadyListRelease(the_task);
         }
         else{
-            #if (ACTIVATE_TASKS_LOCAL_READYLIST)
-            /* decrease number of tasks running on target threads */
+            /* put onto local ready queue */
+            #if (ACTIVATE_TASKS_LOCALE_READYLIST)
             FAS(getLocalFibTasksPtr(the_tcb ));
             FAA(getLocalFibTasksPtr(the_task));
 
-            /* insert into local queue */
             the_tcb->scheduler = the_task->scheduler;
             the_tcb->scheddata = the_task->scheddata;
 
             _CHAIN_INSERT_BEFORE(the_task->scheduler, the_tcb);
             #endif
 
-            #if (ACTIVATE_TASKS_GLOBL_READYLIST)
-            /* decreasing number of tasks running in target thread */
+            /* put onto global ready queue */
+            #if (ACTIVATE_TASKS_GLOBAL_READYLIST)
             FAS(getLocalFibTasksPtr(the_tcb));
             pushIntoGlobalReadyList(the_tcb);
             #endif
 
-            /* push-onto second readyq on target thread */
-            // pushIntoBackupList(the_tcb);
+            /* put onto target thread's ready queue */
+            #if (ACTIVATE_TASKS_TARGET_READYLIST)
+            localReadyListAcquire(the_tcb);
+            _CHAIN_INSERT_BEFORE(the_tcb->scheduler, the_tcb);
+            localReadyListRelease(the_tcb);
+            #endif        
         }
     }
 
@@ -1423,6 +1466,7 @@ static void * fiber_scheduler(void * args){
     }
     
     FibTCB * the_scheduler = the_maintask;
+    fibchain_t * the_chain = getLocalReadyList(the_scheduler);
 
     /* get current time (for timeout) */
     uint64_t prev_stmp = _utime();
@@ -1431,7 +1475,7 @@ static void * fiber_scheduler(void * args){
         uint64_t curr_stmp = _utime();
         uint64_t curr_gapp = curr_stmp - prev_stmp;
         if (likely(curr_gapp)){ 
-            fiber_watchdog_tickle(curr_gapp); 
+            fiber_watchdog_tickle(the_scheduler, curr_gapp); 
             prev_stmp = curr_stmp;
         }
 
@@ -1444,26 +1488,22 @@ static void * fiber_scheduler(void * args){
 
             if (unlikely(next_task != NULL)){
                 /* insert into local ready list */
+                localReadyListAcquire(the_scheduler);
                 _CHAIN_INSERT_BEFORE(the_scheduler, next_task);
+                localReadyListRelease(the_scheduler);
 
                 /* one more task in local system */
                 FAA(getLocalFibTasksPtr(next_task));
-
-                // printf("thread %lu pull task %p in.\n", ((uint64_t)pthread_self()), next_task);
             }
         }
 
         /* exhaust all ready fibers */
-        while (_CHAIN_FIRST(&local_readylist) != _CHAIN_LAST(&local_readylist)) 
+        while (_CHAIN_FIRST(the_chain) != _CHAIN_LAST(the_chain)) 
         {
             fiber_sched_yield();
         }
 
-        // if (getLocalFibTasksVal(the_scheduler) == 1){
-        //     printf("only %2d tasks running on service thread %p.\n", getLocalFibTasksVal(the_scheduler), the_scheduler);
-        // }
-
-        #if (ACTIVATE_TASKS_LOCAL_READYLIST)
+        #if (ACTIVATE_TASKS_LOCALE_READYLIST)
         /* nothing to run, sleep for a while if come to here */
         __usleep__(10);
         #endif
@@ -1471,9 +1511,6 @@ static void * fiber_scheduler(void * args){
 }
 
 void * pthread_scheduler(void * args){
-    /* initialize thread execution environment */
-    FiberThreadStartup();
-
     /* one service thread joined */
     FAA(&mServiceThreads);
 

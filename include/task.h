@@ -123,39 +123,26 @@ struct FibTCB{
     FibCTX regs;
 };
 
-struct freelist_t;
-typedef struct freelist_t freelist_t;
-
-typedef struct schedmsgnode_t {
-   int32_t type;
-   int32_t code;
-   void *  data;
-   void *  user;
-   int64_t valu;
-} schedmsgnode_t;
-
-struct schedmsgq_t;
-typedef struct schedmsgq_t schedmsgq_t;
-
 struct FibSCP {
     FibTCB      *  taskonrun;
-    schedmsgq_t *  schedmsgq;
-    freelist_t  *  freedlist;
+    void        *  freedlist;
+
     fibchain_t     readylist;
+    spinlock_t     readylock;
 
     fibchain_t     wadoglist;
     spinlock_t     wadoglock;
     
-    int            freedlist_size;
+    int            freedsize;
     int            group;
-
-    int64_t        nLocalFibTasks;
 
     struct {
         void *   stackbase;
         uint32_t stacksize;
+        uint32_t pad32;
     } cached_stack[8];
     uint32_t cached_stack_mask;
+    uint32_t nLocalFibTasks;
 };
 
 typedef struct FiberMutex {
@@ -207,7 +194,6 @@ typedef FibMsgQ      fiber_msgq_t;
 ///////////////////////////////////////////////////////////////////
 /* called @ system startup */
 bool FiberGlobalStartup();
-bool FiberThreadStartup();
 
 /* create a task */
 FibTCB * fiber_create(
