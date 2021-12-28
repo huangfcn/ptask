@@ -19,8 +19,8 @@ void * blockq_pop (blockq_t * bq);
 void blockq_delete(blockq_t * bq);
 //////////////////////////////////////////////////////////
 
-#define NUM_PRODUCERS (16)
-#define NUM_CONSUMERS (16)
+#define NUM_PRODUCERS (8192)
+#define NUM_CONSUMERS (8192)
 
 typedef struct {
     blockq_t * bq;
@@ -107,7 +107,14 @@ int main(){
 
     blockq_t *bq = blockq_new(1024);
 
+    fibthread_args_t args = {
+      .threadStartup = initializeTasks,
+      .threadCleanup = NULL,
+      .args = (void *)(bq),
+    };
+
     pthread_t tid;
+
     /* create some service threads and wait it running */
     pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
     // pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
@@ -116,12 +123,6 @@ int main(){
     // pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
     // pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
     // pthread_create(&tid, NULL, pthread_scheduler, NULL); sleep(1);
-
-    fibthread_args_t args = {
-      .threadStartup = initializeTasks,
-      .threadCleanup = NULL,
-      .args = (void *)(bq),
-    };
 
     pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
 

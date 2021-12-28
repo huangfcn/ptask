@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-#define MAX_GLOBAL_GROUPS           (   8)
+#define MAX_GLOBAL_GROUPS           (   4)
 
 #define MAX_LOCAL_FREED_TASKS       ( 128)
 #define TCB_INCREASE_SIZE_AT_EMPTY  (  64)
