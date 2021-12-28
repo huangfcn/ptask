@@ -74,15 +74,15 @@ static inline void pushIntoGlobalReadyList(FibTCB * the_task){
 	spin_unlock(the_lock);
 };
 
-static inline FibTCB * popFromGlobalReadyList(int group){
+static inline FibTCB * popFromGlobalReadyList(FibTCB * the_scheduler, int group){
 	fibchain_t * the_chain = &global_readylist[group];
 	spinlock_t * the_lock  = &spinlock_readylist[group];
 	FibTCB * the_task = NULL;
 	spin_lock(the_lock);
 	the_task = _CHAIN_EXTRACT_FIRST(the_chain);
 	if (the_task){
-		the_task->scheduler = the_maintask;
-		the_task->scheddata = &localscp;
+		the_task->scheduler = the_scheduler;
+		the_task->scheddata = the_scheduler->scheddata;
 
 		/* make it ready */
 		the_task->state &= (~STATES_BLOCKED);
@@ -864,11 +864,13 @@ static inline int fiber_watchdog_tickle(int gap){
             }
             else if (the_task->state & STATES_IN_USLEEP){
                 /* clear WAITING STATES */
-            	the_task->state &= (~STATES_WAITFOR_EVENT);
+            	the_task->state &= (~STATES_IN_USLEEP);
 
             	/* always call from scheduler's thread */
             	_CHAIN_INSERT_BEFORE(the_task->scheduler, the_task);
             }
+
+            /* what happened (?) */
         }
         else{
             the_task->delta_interval -= gap;
@@ -1308,13 +1310,14 @@ bool fiber_cond_signal(FibCondition * pcond){
         _CHAIN_INSERT_BEFORE(the_task->scheduler, the_first);
         #endif
 
-        // pushIntoBackupList(the_first);
-
         #if (ACTIVATE_TASKS_GLOBL_READYLIST)
     	/* push to global ready list */
     	FAS(getLocalFibTasksPtr(the_first));
     	pushIntoGlobalReadyList(the_first);
     	#endif
+
+    	// push onto second readyq on target thread
+        // pushIntoBackupList(the_first);
 
     	return true;
     }
@@ -1387,7 +1390,7 @@ bool fiber_cond_broadcast(FibCondition * pcond){
         	pushIntoGlobalReadyList(the_tcb);
         	#endif
 
-        	/* second readyq on target thread */
+        	/* push-onto second readyq on target thread */
         	// pushIntoBackupList(the_tcb);
         }
     }
@@ -1428,7 +1431,7 @@ static void * fiber_scheduler(void * args){
         if (unlikely(getLocalFibTasksVal(the_scheduler) < ((nGlobalFibTasks * 16 / 15 + mServiceThreads - 1) / mServiceThreads))){
             /* get a task from global if too few tasks running locally */
             int localgroup = the_scheduler->scheddata->group;
-            FibTCB * next_task = popFromGlobalReadyList(localgroup);
+            FibTCB * next_task = popFromGlobalReadyList(the_scheduler, localgroup);
             the_scheduler->scheddata->group = (localgroup + 1) & (MAX_GLOBAL_GROUPS - 1);
 
             if (unlikely(next_task != NULL)){
