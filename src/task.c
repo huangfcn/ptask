@@ -53,6 +53,18 @@ __thread_local FibTCB * the_maintask = NULL;
 #define localReadyListAcquire(the_task)
 #define localReadyListRelease(the_task)
 #endif
+
+#define localReadyQProtectedExtract(_the_task) do {                     \
+    localReadyListAcquire(_the_task);                                   \
+    _CHAIN_REMOVE(_the_task);                                           \
+    localReadyListRelease(_the_task);                                   \
+} while (0)
+
+#define localReadyQProtectedInsertBefore(_the_sched, _the_task) do {    \
+    localReadyListAcquire(_the_task);                                   \
+    _CHAIN_INSERT_BEFORE((_the_sched), (_the_task));                    \
+    localReadyListRelease(_the_task);                                   \
+} while (0)
 /////////////////////////////////////////////////////////////////////////
 
 /* global lists (need lock to access) */
@@ -421,9 +433,7 @@ static void * cpp_taskmain(FibTCB * the_task){
     }
 
     /* remove current task from ready list*/
-    localReadyListAcquire(the_task);
-    _CHAIN_REMOVE(the_task);
-    localReadyListRelease(the_task);
+    localReadyQProtectedExtract(the_task);
 
     /* free stack */
     if (the_task->stacksize & MASK_SYSTEM_STACK){
@@ -588,9 +598,7 @@ static inline int fiber_setstate(FibTCB * the_task, uint64_t states){
     the_task->state |= states;
 
     /* extract from ready list */
-    localReadyListAcquire(the_task);
-    _CHAIN_REMOVE(the_task);
-    localReadyListRelease(the_task);
+    localReadyQProtectedExtract(the_task);
 
     /* fiber_sched to next task */
     fiber_sched();
@@ -612,11 +620,7 @@ FibTCB * fiber_yield(uint64_t code){
 uint64_t fiber_resume(FibTCB * the_task){
     uint64_t yieldCode = the_task->yieldCode;
     the_task->state &= (~STATES_SUSPENDED);
-
-    localReadyListAcquire(the_task);
-    _CHAIN_INSERT_BEFORE(the_task->scheduler, the_task);
-    localReadyListRelease(the_task);
-
+    localReadyQProtectedInsertBefore(the_task->scheduler, the_task);
     return (yieldCode);
 }
 
@@ -734,10 +738,7 @@ static inline int fiber_watchdog_tickle(FibTCB * the_scheduler, int gap){
                     _CHAIN_REMOVE(the_task);
 
                     /* always call from scheduler's thread */
-                    localReadyListAcquire(the_task);
-                    _CHAIN_INSERT_BEFORE(the_task->scheduler, the_task);
-                    localReadyListRelease(the_task);
-
+                    localReadyQProtectedInsertBefore(the_task->scheduler, the_task);
                 }
                 spin_unlock(&(psem->qlock));
             }
@@ -748,9 +749,7 @@ static inline int fiber_watchdog_tickle(FibTCB * the_scheduler, int gap){
                     the_task->state &= (~STATES_WAITFOR_EVENT);
 
                     /* always call from scheduler's thread */
-                    localReadyListAcquire(the_task);
-                    _CHAIN_INSERT_BEFORE(the_task->scheduler, the_task);
-                    localReadyListRelease(the_task);
+                    localReadyQProtectedInsertBefore(the_task->scheduler, the_task);
                 }
                 spin_unlock(&(the_task->eventlock));
             }
@@ -759,9 +758,7 @@ static inline int fiber_watchdog_tickle(FibTCB * the_scheduler, int gap){
                 the_task->state &= (~STATES_IN_USLEEP);
 
                 /* always call from scheduler's thread */
-                localReadyListAcquire(the_task);
-                _CHAIN_INSERT_BEFORE(the_task->scheduler, the_task);
-                localReadyListRelease(the_task);
+                localReadyQProtectedInsertBefore(the_task->scheduler, the_task);
             }
 
             /* what happened (?) */
@@ -808,9 +805,7 @@ uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout){
     the_task->state |= (((timeout > 0) ? STATES_TRANSIENT : 0) | STATES_WAITFOR_EVENT);
 
     /* extract from ready list */
-    localReadyListAcquire(the_task);
-    _CHAIN_REMOVE(the_task);
-    localReadyListRelease(the_task);
+    localReadyQProtectedExtract(the_task);
 
     spin_unlock(&(the_task->eventlock));
 
@@ -853,9 +848,7 @@ int fiber_event_post(FibTCB * the_task, uint64_t events_in){
         spin_unlock(&(the_task->eventlock));
 
         /* waiting for timeout operation finished */
-        while (unlikely(the_task->state & STATES_TRANSIENT)){
-            cpu_relax();
-        }
+        while (unlikely(the_task->state & STATES_TRANSIENT)){ cpu_relax(); }
 
         /* extract from watchdog list if needed */
         if (likely(the_task->state & STATES_WAIT_TIMEOUTB)){
@@ -865,9 +858,7 @@ int fiber_event_post(FibTCB * the_task, uint64_t events_in){
         FibTCB * the_scheduler = the_maintask;
         if (the_task->scheduler == the_scheduler){
             /* insert into current ready list (before scheduler) */
-            localReadyListAcquire(the_scheduler);
-            _CHAIN_INSERT_BEFORE(the_scheduler, the_task);
-            localReadyListRelease(the_scheduler);
+            localReadyQProtectedInsertBefore(the_scheduler, the_task);
         }
         else{
             /* put onto local ready queue */
@@ -889,9 +880,7 @@ int fiber_event_post(FibTCB * the_task, uint64_t events_in){
 
             /* put onto target thread's ready queue */
             #if (ACTIVATE_TASKS_TARGET_READYLIST)
-            localReadyListAcquire(the_task);
-            _CHAIN_INSERT_BEFORE(the_task->scheduler, the_task);
-            localReadyListRelease(the_task);
+            localReadyQProtectedInsertBefore(the_task->scheduler, the_task);
             #endif
         }
     }
@@ -938,9 +927,7 @@ bool fiber_mutex_lock(FibMutex * pmutex){
     the_task->state |= STATES_WAITFOR_MUTEX;
 
     /* extract from ready list */
-    localReadyListAcquire(the_task);
-    _CHAIN_REMOVE(the_task);
-    localReadyListRelease(the_task);
+    localReadyQProtectedExtract(the_task);
 
     /* put onto waiting list */
     _CHAIN_INSERT_TAIL(&(pmutex->waitq), the_task);
@@ -959,10 +946,8 @@ bool fiber_mutex_unlock(FibMutex * pmutex){
     }
 
     /* check entries */
-    pmutex->reentries -= 1;
-    if (pmutex->reentries){
-        return true;
-    }
+    --pmutex->reentries;
+    if (pmutex->reentries){ return true; }
 
     FibTCB * the_first = NULL;
 
@@ -972,22 +957,16 @@ bool fiber_mutex_unlock(FibMutex * pmutex){
     pmutex->holder = (uint64_t)(the_first);
     spin_unlock(&(pmutex->qlock));
 
-    if (the_first == NULL){
-        return true;
-    }
+    if (the_first == NULL){ return true; }
 
     /* unlock & switch holder */
     pmutex->reentries = 1;
 
+    /* clear the block state */
+    the_first->state &= (~STATES_WAITFOR_MUTEX);
     if (the_first->scheduler == the_task->scheduler){
-        /* clear the block state */
-        the_first->state &= (~STATES_WAITFOR_MUTEX);
-
         /* put onto ready list */
-        localReadyListAcquire(the_task);
-        _CHAIN_INSERT_BEFORE(the_task->scheduler, the_first);
-        localReadyListRelease(the_task);
-        return (true);
+        localReadyQProtectedInsertBefore(the_first->scheduler, the_first);
     }
     else{
         /* put onto local ready queue */
@@ -1009,13 +988,10 @@ bool fiber_mutex_unlock(FibMutex * pmutex){
 
         /* put onto target thread's ready queue */
         #if (ACTIVATE_TASKS_TARGET_READYLIST)
-        localReadyListAcquire(the_first);
-        _CHAIN_INSERT_BEFORE(the_first->scheduler, the_first);
-        localReadyListRelease(the_first);
+        localReadyQProtectedInsertBefore(the_first->scheduler, the_first);
         #endif
-
-        return true;
     }
+    return true;
 }
 
 bool fiber_mutex_destroy(FibMutex * pmtx){
@@ -1045,26 +1021,19 @@ bool fiber_sem_wait(FibSemaphore * psem){
 
     /* decrease the resource count */
     --psem->count;
-
-    /* check resource count again once locked */
     if (psem->count >= 0){
         spin_unlock(&(psem->qlock));
         return true;
     }
 
     /* extract from local ready list */
-    localReadyListAcquire(the_task);
-    _CHAIN_REMOVE(the_task);
-    localReadyListRelease(the_task);
+    localReadyQProtectedExtract(the_task);
 
     /* insert into semaphore's waitq */
     _CHAIN_INSERT_TAIL(&(psem->waitq), the_task);
 
     /* set state */
     the_task->state |= STATES_WAITFOR_SEMPH;
-
-    /* set waiting object */
-    the_task->waitingObject = (uint64_t)(psem);
 
     spin_unlock(&(psem->qlock));
 
@@ -1081,8 +1050,6 @@ bool fiber_sem_timedwait(FibSemaphore * psem, int timeout){
 
     /* decrease the resource count */
     --psem->count;
-
-    /* check resource count again once locked */
     if (psem->count >= 0){
         spin_unlock(&(psem->qlock));
         return true;
@@ -1095,9 +1062,7 @@ bool fiber_sem_timedwait(FibSemaphore * psem, int timeout){
     }
 
     /* extract from local ready list */
-    localReadyListAcquire(the_task);
-    _CHAIN_REMOVE(the_task);
-    localReadyListRelease(the_task);
+    localReadyQProtectedExtract(the_task);
 
     /* insert into semaphore's waitq */
     _CHAIN_INSERT_TAIL(&(psem->waitq), the_task);
@@ -1163,11 +1128,7 @@ bool fiber_sem_post(FibSemaphore * psem){
 
     if (the_first->scheduler == the_task->scheduler){
         /* clear the block state */
-        localReadyListAcquire(the_task);
-        _CHAIN_INSERT_BEFORE(the_task->scheduler, the_first);
-        localReadyListRelease(the_task);
-
-        return (true);
+        localReadyQProtectedInsertBefore(the_task->scheduler, the_first);
     }
     else{
         /* put onto local ready queue */
@@ -1189,13 +1150,10 @@ bool fiber_sem_post(FibSemaphore * psem){
 
         /* put onto target thread's ready queue */
         #if (ACTIVATE_TASKS_TARGET_READYLIST)
-        localReadyListAcquire(the_first);
-        _CHAIN_INSERT_BEFORE(the_first->scheduler, the_first);
-        localReadyListRelease(the_first);
+        localReadyQProtectedInsertBefore(the_first->scheduler, the_first);
         #endif
-
-        return true;
     }
+    return true;
 }
 
 bool fiber_sem_destroy(FibSemaphore * psem){
@@ -1222,18 +1180,13 @@ bool fiber_cond_wait(FibCondition * pcond, FibMutex * pmutex){
     spin_lock(&(pcond->qlock));
 
     /* extract from local ready list */
-    localReadyListAcquire(the_task);
-    _CHAIN_REMOVE(the_task);
-    localReadyListRelease(the_task);
+    localReadyQProtectedExtract(the_task);
 
     /* insert into semaphore's waitq */
     _CHAIN_INSERT_TAIL(&(pcond->waitq), the_task);
 
     /* set state */
     the_task->state |= STATES_WAITFOR_CONDV;
-
-    /* set waiting object */
-    the_task->waitingObject = (uint64_t)(pcond);
 
     spin_unlock(&(pcond->qlock));
 
@@ -1261,9 +1214,7 @@ bool fiber_cond_timedwait(FibCondition * pcond, FibMutex * pmutex, int timeout){
     }
 
     /* extract from local ready list */
-    localReadyListAcquire(the_task);
-    _CHAIN_REMOVE(the_task);
-    localReadyListRelease(the_task);
+    localReadyQProtectedExtract(the_task);
 
     /* insert into condition's waitq */
     _CHAIN_INSERT_TAIL(&(pcond->waitq), the_task);
@@ -1323,22 +1274,18 @@ bool fiber_cond_signal(FibCondition * pcond){
     spin_unlock(&(pcond->qlock));
 
     /* waiting for timedwait finished */
-    while (unlikely(the_first->state & STATES_TRANSIENT)){
-        cpu_relax();
+    while (unlikely(the_first->state & STATES_TRANSIENT)){ 
+        cpu_relax(); 
     }
 
     /* remove the_first from watchdog list */
-    if (the_first->state & STATES_WAIT_TIMEOUTB){
+    if (the_first->state & STATES_WAIT_TIMEOUTB){ 
         fiber_watchdog_remove(the_first);
     }
 
     if (the_first->scheduler == the_task->scheduler){
         /* clear the block state */
-        localReadyListAcquire(the_task);
-        _CHAIN_INSERT_BEFORE(the_task->scheduler, the_first);
-        localReadyListRelease(the_task);
-
-        return (true);
+        localReadyQProtectedInsertBefore(the_task->scheduler, the_first);
     }
     else{
         /* put onto local ready queue */
@@ -1360,13 +1307,10 @@ bool fiber_cond_signal(FibCondition * pcond){
 
         /* put onto target thread's ready queue */
         #if (ACTIVATE_TASKS_TARGET_READYLIST)
-        localReadyListAcquire(the_first);
-        _CHAIN_INSERT_BEFORE(the_first->scheduler, the_first);
-        localReadyListRelease(the_first);
+        localReadyQProtectedInsertBefore(the_first->scheduler, the_first);
         #endif
-
-        return true;
     }
+    return true;
 }
 
 bool fiber_cond_broadcast(FibCondition * pcond){
@@ -1415,9 +1359,7 @@ bool fiber_cond_broadcast(FibCondition * pcond){
 
         if (likely(the_tcb->scheduler == the_task->scheduler)){
             /* clear the block state */
-            localReadyListAcquire(the_task);
-            _CHAIN_INSERT_BEFORE(the_task->scheduler, the_tcb);
-            localReadyListRelease(the_task);
+            localReadyQProtectedInsertBefore(the_task->scheduler, the_tcb);
         }
         else{
             /* put onto local ready queue */
@@ -1439,9 +1381,7 @@ bool fiber_cond_broadcast(FibCondition * pcond){
 
             /* put onto target thread's ready queue */
             #if (ACTIVATE_TASKS_TARGET_READYLIST)
-            localReadyListAcquire(the_tcb);
-            _CHAIN_INSERT_BEFORE(the_tcb->scheduler, the_tcb);
-            localReadyListRelease(the_tcb);
+            localReadyQProtectedInsertBefore(the_tcb->scheduler, the_tcb);
             #endif        
         }
     }
@@ -1488,9 +1428,7 @@ static void * fiber_scheduler(void * args){
 
             if (unlikely(next_task != NULL)){
                 /* insert into local ready list */
-                localReadyListAcquire(the_scheduler);
-                _CHAIN_INSERT_BEFORE(the_scheduler, next_task);
-                localReadyListRelease(the_scheduler);
+                localReadyQProtectedInsertBefore(the_scheduler, next_task);
 
                 /* one more task in local system */
                 FAA(getLocalFibTasksPtr(next_task));
