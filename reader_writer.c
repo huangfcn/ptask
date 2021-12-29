@@ -52,6 +52,7 @@ int main(){
     fibthread_args_t args = {
       .threadStartup = initializeTasks,
       .threadCleanup = NULL,
+      .threadMsgLoop = NULL,
       .args = (void *)(0),
     };
     pthread_scheduler(&args);

@@ -15,7 +15,6 @@ extern "C" {
 #define MAX_LOCAL_FREED_TASKS       ( 128)
 #define TCB_INCREASE_SIZE_AT_EMPTY  (  64)
 
-#define MAX_EPOLL_EVENTS_PER_THREAD (8192)
 #define MAX_TASK_LOCALDATAS         (   4)
 
 #define FIBER_STACKSIZE_MIN         (8192)
@@ -269,6 +268,7 @@ void asm_taskmain(              );
 typedef struct fibthread_args_t {
     bool (*threadStartup)(void *);
     bool (*threadCleanup)(void *);
+    bool (*threadMsgLoop)(void *);
     void * args;
 } fibthread_args_t;
 ///////////////////////////////////////////////////////////////////

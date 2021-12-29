@@ -115,6 +115,7 @@ int main(int argc, char** argv)
     fibthread_args_t args = {
       .threadStartup = initializeTasks,
       .threadCleanup = NULL,
+      .threadMsgLoop = NULL,
       .args = (void *)(passes),
     };
     pthread_scheduler(&args);

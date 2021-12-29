@@ -4,7 +4,6 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
 struct EventContext;
 typedef struct EventContext EventContext;
 
@@ -21,7 +20,8 @@ struct EventContext{
 typedef struct EventContextControlBlock {
     uint64_t maxEvents;
     uint64_t usedEventMask;
-    uint64_t tmpEventMasks;
+    
+    int      epoll_fd;
 
     EventContext * ctxs;
 } EventContextControlBlock;
@@ -35,6 +35,10 @@ int fiber_epoll_wait(
     struct epoll_event * events, 
     int maxEvents, 
     int timeout_in_ms
+    );
+int fiber_epoll_post(
+    int nEvents,
+    struct epoll_event * events
     );
 ///////////////////////////////////////////////////////////////////
 

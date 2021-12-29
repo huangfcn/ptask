@@ -53,19 +53,19 @@ static int make_socket_non_blocking(int sfd)
 #define MAXEVENTS  (4)
 
 static const char reply[] =
-"HTTP/1.0 200 OK\r\n"
-"Content-type: text/html\r\n"
-"Connection: close\r\n"
-"Content-Length: 82\r\n"
-"\r\n"
-"<html>\n"
-"<head>\n"
-"<title>performance test</title>\n"
-"</head>\n"
-"<body>\n"
-"Hello FibTask!\n"
-"</body>\n"
-"</html>"
+    "HTTP/1.0 200 OK\r\n"
+    "Content-type: text/html\r\n"
+    "Connection: close\r\n"
+    "Content-Length: 82\r\n"
+    "\r\n"
+    "<html>\n"
+    "<head>\n"
+    "<title>performance test</title>\n"
+    "</head>\n"
+    "<body>\n"
+    "Hello FibTask!\n"
+    "</body>\n"
+    "</html>"
 ;
 
 ssize_t fdread(int fd, char * buf, int bufsize){
@@ -73,9 +73,18 @@ ssize_t fdread(int fd, char * buf, int bufsize){
     return (rc >= 0) ? (rc) : ((errno == EAGAIN) ? (-1) : (-2));
 }
 
+typedef struct client_params_t {
+    int epoll_fd;
+    int fd;
+} client_params_t;
+
 void * requestHandler(void* args)
 {
-    int infd = (int64_t)(args);
+    client_params_t * params = (client_params_t *)args;
+
+    int infd = params->fd;
+    int epollfd = params->epoll_fd;
+
     int s = make_socket_non_blocking(infd);
     if (s == -1)
         abort();
@@ -83,9 +92,9 @@ void * requestHandler(void* args)
     EventContext ctxs[MAXEVENTS] = {0};
     EventContextControlBlock ctxcb = {
         .maxEvents     = MAXEVENTS,
-        .usedEventMask = ~0ULL,
-        .tmpEventMasks =  0ULL,
-        .ctxs = ctxs
+        .usedEventMask = (~0ULL),
+        .epoll_fd      = epollfd,
+        .ctxs          = ctxs
     };
     fiber_set_localdata(fiber_ident(), 0, (uint64_t)(&ctxcb));
     fiber_epoll_register_events(infd, EPOLLIN | EPOLLET);
@@ -150,9 +159,17 @@ void * requestHandler(void* args)
     return (void *)(0);
 }
 
+typedef struct epoll_params_t {
+    int portnum;
+    int epoll_fd; 
+} epoll_params_t;
+
 void* server(void* args)
 {
-    int portnum = (int64_t)(args);
+    epoll_params_t * params = (epoll_params_t *)args;
+
+    int portnum = params->portnum;
+    int epollfd = params->epoll_fd;
 
     int sfd, s;
     struct epoll_event events[MAXEVENTS];
@@ -172,12 +189,15 @@ void* server(void* args)
     EventContext ctxs[MAXEVENTS] = {0};
     EventContextControlBlock ctxcb = {
         .maxEvents     = MAXEVENTS,
-        .usedEventMask = ~0ULL,
-        .tmpEventMasks =  0ULL,
-        .ctxs = ctxs
+        .usedEventMask = (~0ULL),
+        .epoll_fd      = epollfd,
+        .ctxs          = ctxs
     };
     fiber_set_localdata(fiber_ident(), 0, (uint64_t)(&ctxcb));
     fiber_epoll_register_events(sfd, EPOLLIN | EPOLLET);
+
+    client_params_t client_params;
+    client_params.epoll_fd = epollfd;
 
     /* The event loop */
     while (1)
@@ -219,7 +239,8 @@ void* server(void* args)
                         }
                     }
                     else{
-                        fiber_create(requestHandler, (void*)((int64_t)infd), NULL, 8192 * 2);
+                        client_params.fd = infd; /* not safe, need to allocate/deallocate */
+                        fiber_create(requestHandler, (void*)(&client_params), NULL, 8192 * 2);
                     }
                 }
             }
@@ -231,13 +252,32 @@ void* server(void* args)
     return EXIT_SUCCESS;
 }
 
-
-bool initializeTask(void* args) {
+/////////////////////////////////////////////////////////////////
+/* callbacks: create server task & thread message loop (epoll) */
+/////////////////////////////////////////////////////////////////
+static bool initializeTask(void* args) {
     fiber_create(server, args, NULL, 8192 * 2);
     return true;
 }
 
-#include <pthread.h>
+static bool epoll_msgloop(void * args){
+    epoll_params_t * param = (epoll_params_t *)args;
+
+    struct epoll_event epoll_events[64];
+
+    /* call epoll */
+    int rc = epoll_wait(param->epoll_fd, epoll_events, 64, 10);
+    if (unlikely(rc < 0)){
+        return false;
+    }
+
+    /* dispatch events */
+    fiber_epoll_post(rc, epoll_events);
+    return true;
+}
+/////////////////////////////////////////////////////////////////
+
+// #include <pthread.h>
 int main(int argc, char* argv[])
 {
     if (argc != 2) {
@@ -247,16 +287,18 @@ int main(int argc, char* argv[])
 
     FiberGlobalStartup();
 
-    /* create epoll thread & let it run first */
-    pthread_t tid; bool bQuit = false;
-    pthread_create(&tid, NULL, pthread_epoll, (void *)(&bQuit)); sleep(1);
+    int portnum = atoi(argv[1]);
+
+    epoll_params_t params;
+    params.portnum  = portnum;
+    params.epoll_fd = epoll_create1(EPOLL_CLOEXEC);
 
     /* run another thread */
-    int64_t portnum = atoi(argv[1]);
     fibthread_args_t args = {
       .threadStartup = initializeTask,
       .threadCleanup = NULL,
-      .args = (void *)(portnum),
+      .threadMsgLoop = epoll_msgloop,
+      .args = (void *)(&params),
     };
     pthread_scheduler(&args);
     return 0;

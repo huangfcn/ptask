@@ -4,39 +4,6 @@
 #include "task.h"
 #include "epoll.h"
 
-#include "timestamp.h"
-
-/* epoll specific data */
-static int epoll_fd = 0;
-static struct epoll_event epoll_events[MAX_EPOLL_EVENTS_PER_THREAD];
-
-/* maintask should be the only task can call thread level blocking functions (epoll)
- */ 
-static int64_t fiber_epoll(int fd, volatile bool * bQuit){
-    while (!bQuit[0]){
-        /* call epoll */
-        int rc = epoll_wait(fd, epoll_events, MAX_EPOLL_EVENTS_PER_THREAD, 10);
-        if (unlikely(rc < 0)){
-            /* fatal error */
-            continue;
-        }
-
-        /* merge events */
-        for (int i = 0; i < rc; ++i){
-            EventContext * ctx = (EventContext *)(epoll_events[i].data.ptr);
-            ctx->events_o = epoll_events[i].events;
-            fiber_event_post(ctx->tcb, (1 << (ctx->index)));
-        }
-    }
-
-    return (0LL);
-}
-
-void * pthread_epoll(void * args){
-    epoll_fd = epoll_create1(EPOLL_CLOEXEC);
-    return (void *)fiber_epoll(epoll_fd, (bool *)args);
-}
-
 /////////////////////////////////////////////////////////////////////////
 /* Macro Loop on Set Bit                                               */
 /////////////////////////////////////////////////////////////////////////
@@ -82,6 +49,8 @@ int fiber_epoll_register_events(int fd, int events){
     int index = __ffs64(pcb->usedEventMask);
     if (unlikely((index == 0) || (index > pcb->maxEvents))){return -1;};
     
+    int epoll_fd = pcb->epoll_fd;
+
     /* decrease index -> 0 based */
     --index;
 
@@ -128,6 +97,7 @@ static inline int fiber_epoll_polling_events(
 
 int fiber_epoll_unregister_event(FibTCB * the_tcb, int p){
     EventContextControlBlock * pcb = (EventContextControlBlock *)fiber_get_localdata(the_tcb, 0);
+    int epoll_fd = pcb->epoll_fd;
     epoll_ctl(                  
         epoll_fd, EPOLL_CTL_DEL,
         pcb->ctxs[p].fd, NULL   
@@ -145,5 +115,18 @@ int fiber_epoll_wait(
     FibTCB * the_task = fiber_ident();
     uint64_t mask = fiber_event_wait(~0ULL, TASK_EVENT_WAIT_ANY, timeout_in_ms * 1000);
     return fiber_epoll_polling_events(the_task, mask, events);
+}
+
+int fiber_epoll_post(
+    int nEvents,
+    struct epoll_event * events
+    )
+{
+    for (int i = 0; i < nEvents; ++i){
+        EventContext * ctx = (EventContext *)(events[i].data.ptr);
+        ctx->events_o = events[i].events;
+        fiber_event_post(ctx->tcb, (1 << (ctx->index)));
+    }
+    return (0);
 }
 /////////////////////////////////////////////////////////////////////////
