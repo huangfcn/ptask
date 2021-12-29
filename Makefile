@@ -4,7 +4,7 @@ all: $(LIB) simplehttp generator reader_writer blockq rwlock fiberbq pipe_ring
 AS=gcc
 CC=gcc
 CXX=g++
-CFLAGS= -Iinclude -I. -Wall -march=native -D__SCHEDULER_USING_BLOCKQ__ 
+CFLAGS= -Iinclude -I. -Wall -march=native
 
 INCFILES=include/task.h      \
          include/chain.h     \

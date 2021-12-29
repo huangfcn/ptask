@@ -213,10 +213,10 @@ static inline void tcb_free(FibTCB * tcb){
         getLocalFreedSize(the_scheduler) += 1;
     }
     else{
-        spin_lock(&spinlock_freedlist);
+        __spin_lock(&spinlock_freedlist);
         node->next = (freelist_t *)global_freedlist;
         global_freedlist = node;
-        spin_unlock(&spinlock_freedlist);
+        __spin_unlock(&spinlock_freedlist);
     }
 };
 
@@ -234,10 +234,10 @@ static inline FibTCB * tcb_alloc(){
     }
     else{
         FibTCB * tcb = NULL;
-        spin_lock(&spinlock_freedlist);
+        __spin_lock(&spinlock_freedlist);
         tcb = (FibTCB *)global_freedlist;
         if (likely(tcb)){global_freedlist = global_freedlist->next;}
-        spin_unlock(&spinlock_freedlist);
+        __spin_unlock(&spinlock_freedlist);
         if (likely(tcb)){return tcb;}
     }
 
@@ -270,7 +270,7 @@ static inline bool fiber_stackcache_put(
     /* put into local cache first */
     int index = __ffs32(getLocalStackMask(the_scheduler));
     if (unlikely(index == 0)){
-        spin_lock(&spinlock_cached_stack);
+        __spin_lock(&spinlock_cached_stack);
         index = __ffs64(global_cached_stack_mask);
         if (likely(index != 0)){
             --index;
@@ -278,7 +278,7 @@ static inline bool fiber_stackcache_put(
             global_cached_stack[index].stackbase = stackbase;
             global_cached_stack[index].stacksize = stacksize;
         }
-        spin_unlock(&spinlock_cached_stack);
+        __spin_unlock(&spinlock_cached_stack);
 
         if (unlikely(index == 0)){
             /* generate a random number */
@@ -336,7 +336,7 @@ static inline uint8_t * fiber_stackcache_get(uint32_t * stacksize){
         int       index     = -1;
         uint8_t * stackaddr = NULL;     
 
-        spin_lock(&spinlock_cached_stack);
+        __spin_lock(&spinlock_cached_stack);
         uint64_t  mask  = ~global_cached_stack_mask;
         #define callback_setglobalstack(p) do {                      \
             if (global_cached_stack[p].stacksize >= (*stacksize)){   \
@@ -353,7 +353,7 @@ static inline uint8_t * fiber_stackcache_get(uint32_t * stacksize){
             *stacksize = global_cached_stack[index].stacksize;
             stackaddr = global_cached_stack[index].stackbase;
         }
-        spin_unlock(&spinlock_cached_stack);
+        __spin_unlock(&spinlock_cached_stack);
         if (index >= 0) {return stackaddr;}
     }
 
@@ -515,12 +515,15 @@ FibTCB * fiber_create(
     /* increase number of fibtasks in system */
     FAA(&nGlobalFibTasks);
 
+    #ifndef __1_N_MODEL__
     /* load balance when task first created */
     if (unlikely((the_task != the_scheduler) && (getLocalFibTasksVal(the_scheduler) > ((nGlobalFibTasks * 7 / 6 + mServiceThreads - 1) / mServiceThreads)))){
         /* set scheduler & scheddata to NULL */
         pushIntoGlobalReadyList(the_task);
     }
-    else{
+    else
+    #endif
+    {
         /* set scheduler & scheddata */
         the_task->scheduler = (the_scheduler);
         the_task->scheddata = (the_scheduler->scheddata);
@@ -839,8 +842,10 @@ int fiber_event_post(FibTCB * the_task, uint64_t events_in){
         the_task->state &= (~STATES_WAITFOR_EVENT);
         spin_unlock(&(the_task->eventlock));
 
+        #ifndef __1_N_MODEL__
         /* waiting for timeout operation finished */
         while (unlikely(the_task->state & STATES_TRANSIENT)){ cpu_relax(); }
+        #endif
 
         /* extract from watchdog list if needed */
         if (likely(the_task->state & STATES_WAIT_TIMEOUTB)){
@@ -956,7 +961,7 @@ bool fiber_mutex_unlock(FibMutex * pmutex){
 
     /* clear the block state */
     the_first->state &= (~STATES_WAITFOR_MUTEX);
-    if (the_first->scheduler == the_task->scheduler){
+    if (likely(the_first->scheduler == the_task->scheduler)){
         /* put onto ready list */
         localReadyQProtectedInsertBefore(the_first->scheduler, the_first);
     }
@@ -1108,17 +1113,17 @@ bool fiber_sem_post(FibSemaphore * psem){
     /* unlock & switch holder */
     spin_unlock(&(psem->qlock));
 
+    #ifndef __1_N_MODEL__
     /* waiting for timeout operation done */
-    while (unlikely(the_first->state & STATES_TRANSIENT)){
-        cpu_relax();
-    }
+    while (unlikely(the_first->state & STATES_TRANSIENT)){ cpu_relax(); }
+    #endif
 
     /* remove the_first from watchdog list */
-    if (the_first->state & STATES_WAIT_TIMEOUTB){
+    if (unlikely(the_first->state & STATES_WAIT_TIMEOUTB)){
         fiber_watchdog_remove(the_first);
     }
 
-    if (the_first->scheduler == the_task->scheduler){
+    if (likely(the_first->scheduler == the_task->scheduler)){
         /* clear the block state */
         localReadyQProtectedInsertBefore(the_task->scheduler, the_first);
     }
@@ -1265,17 +1270,17 @@ bool fiber_cond_signal(FibCondition * pcond){
     /* unlock & switch holder */
     spin_unlock(&(pcond->qlock));
 
+    #ifndef __1_N_MODEL__
     /* waiting for timedwait finished */
-    while (unlikely(the_first->state & STATES_TRANSIENT)){ 
-        cpu_relax(); 
-    }
+    while (unlikely(the_first->state & STATES_TRANSIENT)){  cpu_relax(); }
+    #endif
 
     /* remove the_first from watchdog list */
-    if (the_first->state & STATES_WAIT_TIMEOUTB){ 
+    if (unlikely(the_first->state & STATES_WAIT_TIMEOUTB)){ 
         fiber_watchdog_remove(the_first);
     }
 
-    if (the_first->scheduler == the_task->scheduler){
+    if (likely(the_first->scheduler == the_task->scheduler)){
         /* clear the block state */
         localReadyQProtectedInsertBefore(the_task->scheduler, the_first);
     }
@@ -1338,10 +1343,10 @@ bool fiber_cond_broadcast(FibCondition * pcond){
         /* extract from local chain */
         _CHAIN_REMOVE(the_tcb);
 
+        #ifndef __1_N_MODEL__
         /* waiting for timeout operation done! */
-        while (unlikely(the_tcb->state & STATES_TRANSIENT)){
-            cpu_relax();
-        }
+        while (unlikely(the_tcb->state & STATES_TRANSIENT)){ cpu_relax(); }
+        #endif
 
         /* remove the_first from watchdog list */
         if (unlikely(the_tcb->state & STATES_WAIT_TIMEOUTB)){
@@ -1411,6 +1416,7 @@ static void * fiber_scheduler(void * args){
             prev_stmp = curr_stmp;
         }
 
+        #ifndef __1_N_MODEL__
         /* workload balance between service threads */
         if (unlikely(getLocalFibTasksVal(the_scheduler) < ((nGlobalFibTasks * 16 / 15 + mServiceThreads - 1) / mServiceThreads))){
             /* get a task from global if too few tasks running locally */
@@ -1426,10 +1432,10 @@ static void * fiber_scheduler(void * args){
                 FAA(getLocalFibTasksPtr(next_task));
             }
         }
+        #endif
 
         /* exhaust all ready fibers */
-        while (_CHAIN_FIRST(the_chain) != _CHAIN_LAST(the_chain)) 
-        {
+        while (_CHAIN_FIRST(the_chain) != _CHAIN_LAST(the_chain)) {
             fiber_sched_yield();
         }
 

@@ -1,7 +1,25 @@
 #ifndef _SPINLOCK_CMPXCHG_H
 #define _SPINLOCK_CMPXCHG_H
 
-#ifdef __SPINLOCK_USING_MUTEX__
+#if defined(__1_N_MODEL__)
+
+typedef struct {
+    volatile int32_t lock;
+    volatile int32_t pads;
+} CACHE_ALIGN_POST spinlock_t;
+
+#define spin_init(p)
+#define spin_unlock(p)
+#define spin_lock(p)
+#define spin_destroy(p)
+
+/* Pause instruction to prevent excess processor bus usage */
+#define cpu_relax() asm volatile("pause\n": : :"memory")
+
+#define __spin_lock(p) while(!CAS32(&((p)->lock), 0, 1)){cpu_relax();}
+#define __spin_unlock(p) do {(p)->lock = 0;} while(0)
+
+#elif defined(__SPINLOCK_USING_MUTEX__)
 #include <pthread.h>
 typedef pthread_mutex_t spinlock_t;
 
@@ -9,6 +27,9 @@ typedef pthread_mutex_t spinlock_t;
 #define spin_lock(pmutex)  pthread_mutex_lock(pmutex)
 #define spin_unlock(pmtx)  pthread_mutex_unlock(pmtx)
 #define spin_destroy(pmtx) pthread_mutex_destroy(pmtx)
+
+#define __spin_lock(pmtx) spin_lock(pmtx)
+#define __spin_unlock(pmtx) spin_unlock(pmtx)
 
 #else
 
@@ -65,6 +86,8 @@ SPINLOCK_ATTR void spin_unlock(spinlock_t *s)
 #define spin_unlock(p) do {(p)->lock = 0;} while(0)
 #endif
 
+#define __spin_lock(pmtx) spin_lock(pmtx)
+#define __spin_unlock(pmtx) spin_unlock(pmtx)
 
 #define SPINLOCK_INITIALIZER { 0 }
 
