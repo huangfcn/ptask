@@ -15,8 +15,8 @@
 
 #include "timestamp.h"
 
-#define ACTIVATE_TASKS_LOCALE_READYLIST (1)
-#define ACTIVATE_TASKS_GLOBAL_READYLIST (0)
+#define ACTIVATE_TASKS_LOCALE_READYLIST (0)
+#define ACTIVATE_TASKS_GLOBAL_READYLIST (1)
 #define ACTIVATE_TASKS_TARGET_READYLIST (0)
 
 static inline int fiber_watchdog_insert(FibTCB * the_task);
@@ -1439,10 +1439,14 @@ static void * fiber_scheduler(void * args){
             fiber_sched_yield();
         }
 
-        /* call mainloop */
-        if (likely(pargs && pargs->threadMsgLoop)){
+        if ((pargs && pargs->threadMsgLoop)){
             pargs->threadMsgLoop(pargs->args);
         }
+
+        // #if (ACTIVATE_TASKS_LOCALE_READYLIST)
+        // /* nothing to run, sleep for a while if come to here */
+        // __usleep__(10);
+        // #endif
     }
 }
 
