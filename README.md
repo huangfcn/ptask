@@ -130,7 +130,7 @@ void * generator_maintask(void * args){
 }
 ```
 
-# Example 1: Blocking Queue (mutex + cv)
+# Example 2: MPMC Blocking Queue (mutex + cv)
 ```c
 ////////////////////////////////////////////////////////////
 struct blockq_t {
@@ -230,7 +230,7 @@ void blockq_delete(blockq_t * bq)
 ////////////////////////////////////////////////////////////////
 ```
 
-# Example 2: Read-Write Lock
+# Example 3: Read-Write Lock
 
 ```c
 
@@ -302,9 +302,11 @@ int rwlock_destroy(rwlock_t * locker){
 ///////////////////////////////////////////////////////////////////////////////
 ```
 
-# Example 3: port pipe (https://github.com/cgaebel/pipe)
+# Example 4: port pipe (https://github.com/cgaebel/pipe)
+
 
 ```c
+// a mapping of pthread to ptask synchronization API
 #elif defined(__PTHREAD__) /* pthread */
 
 #include <pthread.h>
@@ -346,4 +348,6 @@ int rwlock_destroy(rwlock_t * locker){
 #endif /* windows */
 ```
 
-# 
+# Example 5: simple http webserver using epoll
+
+    src/epoll.c and simplehttp.c 
