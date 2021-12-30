@@ -107,3 +107,175 @@
         );
     ///////////////////////////////////////////////////////////////////
 ```
+
+# Example 1: Block Queue With ptask
+```c
+////////////////////////////////////////////////////////////
+struct blockq_t {
+    queue_t q;
+    qnode_t * freelist;
+
+    int32_t limit;
+    int32_t count;
+
+    fiber_mutex_t lock;
+    fiber_cond_t  empt;
+    fiber_cond_t  full;  
+};
+
+blockq_t * blockq_new(size_t limit)
+{
+    /* allocate all the memory we need */
+    blockq_t * bq = (blockq_t *)malloc(
+        sizeof(blockq_t) + sizeof(qnode_t) * (limit + 8)
+        );
+    if (bq == NULL){ return NULL; }
+    memset(bq, 0, sizeof(blockq_t));
+
+    /* setup qnodes list */
+    qnode_t * blocks = (qnode_t *)(bq + 1);
+    for (int i = 0; i < (limit + 8); ++i){
+        blocks[i].next = bq->freelist;
+        bq->freelist = (blocks + i);
+    }
+
+    queue_init(&bq->q);
+    bq->limit = limit;
+    bq->count = 0;
+
+    fiber_mutex_init(&bq->lock);
+    fiber_cond_init (&bq->empt);
+    fiber_cond_init (&bq->full);
+
+    return bq;
+}
+
+void blockq_push(blockq_t * bq, void *object)
+{
+    fiber_mutex_lock(&bq->lock);
+
+    while (bq->count >= bq->limit) {
+        fiber_cond_wait(&bq->full, &bq->lock);
+    }
+
+    /* allocate a qnode */
+    qnode_t * node = bq->freelist;
+    bq->freelist = node->next;
+
+    assert(node != NULL);
+
+    node->object = object;
+    node->next   = NULL;
+
+    queue_push(&bq->q, node);
+    bq->count++;
+
+    fiber_cond_signal(&bq->empt);
+    fiber_mutex_unlock(&bq->lock);
+}
+
+void * blockq_pop(blockq_t * bq)
+{
+    void * object = NULL;
+    fiber_mutex_lock(&bq->lock);
+
+    while (bq->count == 0) {
+        fiber_cond_wait(&bq->empt, &bq->lock);
+    }
+
+    qnode_t * node = queue_pop(&bq->q);
+    object = node->object;
+    
+    node->next = bq->freelist;
+    bq->freelist = node;
+
+    bq->count--;
+    
+    fiber_cond_signal(&bq->full);
+    fiber_mutex_unlock(&bq->lock);
+
+    return object;
+}
+
+void blockq_delete(blockq_t * bq)
+{
+    fiber_mutex_destroy(&bq->lock);
+    fiber_cond_destroy (&bq->empt);
+    fiber_cond_destroy (&bq->full);
+
+    free(bq);
+}
+////////////////////////////////////////////////////////////////
+'''
+
+# Example 2: Read-Write Lock with ptask
+
+```c
+
+///////////////////////////////////////////////////////////////////////////////
+/* RWLOCK implementation with mutex & CV                                     */
+///////////////////////////////////////////////////////////////////////////////
+typedef struct rwlock_t {
+    fiber_mutex_t mutex;
+    fiber_cond_t  unlocked;
+
+    bool writer;
+    int  readers;
+} rwlock_t;
+
+int rwlock_init(rwlock_t * locker){
+    fiber_mutex_init(&(locker->mutex));
+    fiber_cond_init(&(locker->unlocked));
+
+    locker->writer = false;
+    locker->readers = 0;
+    return 0;
+}
+
+int rwlock_rdlock(rwlock_t * locker) {
+    fiber_mutex_lock(&(locker->mutex));
+    while (locker->writer)
+        fiber_cond_wait(&(locker->unlocked), &(locker->mutex));
+    locker->readers++;
+    fiber_mutex_unlock(&(locker->mutex));
+
+    return (0);
+}
+
+int rwlock_rdunlock(rwlock_t * locker) {
+    fiber_mutex_lock(&(locker->mutex));
+    locker->readers--;
+    if (locker->readers == 0)
+        fiber_cond_broadcast(&(locker->unlocked));
+    fiber_mutex_unlock(&(locker->mutex));
+
+    return 0;
+}
+
+int rwlock_wrlock(rwlock_t * locker) {
+    fiber_mutex_lock(&(locker->mutex));
+    while (locker->writer || locker->readers)
+        fiber_cond_wait(&(locker->unlocked), &(locker->mutex));
+    locker->writer = true;
+    fiber_mutex_unlock(&(locker->mutex));
+
+    return 0;
+}
+
+int rwlock_wrunlock(rwlock_t * locker) {
+    fiber_mutex_lock(&(locker->mutex));
+    locker->writer = false;
+    fiber_cond_broadcast(&(locker->unlocked));
+    fiber_mutex_unlock(&(locker->mutex));
+
+    return 0;
+}
+
+int rwlock_destroy(rwlock_t * locker){
+    fiber_mutex_destroy(&(locker->mutex));
+    fiber_cond_destroy(&(locker->unlocked));
+
+    return 0;
+}
+///////////////////////////////////////////////////////////////////////////////
+'''
