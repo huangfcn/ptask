@@ -21,25 +21,25 @@
 	
 # Pthread Style API
 ```c
-	///////////////////////////////////////////////////////////////////
-	/* coroutine lib standard APIs:                                  */
-	/* 1. libary initialization                                      */
-	/* 2. create a task                                              */
-	/* 3. yield                                                      */
-	/* 4. resume                                                     */
-	/* ------------------------------------------------------------- */
-	/* 5. usleep (task level usleep, wont hangup the thread)         */
-	/* 6. sched_yield                                                */
-	///////////////////////////////////////////////////////////////////
-	/* called @ system startup */
-	bool FiberGlobalStartup();
+    ///////////////////////////////////////////////////////////////////
+    /* coroutine lib standard APIs:                                  */
+    /* 1. libary initialization                                      */
+    /* 2. create a task                                              */
+    /* 3. yield                                                      */
+    /* 4. resume                                                     */
+    /* ------------------------------------------------------------- */
+    /* 5. usleep (task level usleep, wont hangup the thread)         */
+    /* 6. sched_yield                                                */
+    ///////////////////////////////////////////////////////////////////
+    /* called @ system startup */
+    bool FiberGlobalStartup();
 
-	/* create a task */
-	fiber_t fiber_create(
-		void *(*func)(void *), 
-		void * args, 
-		void * stackaddr, 
-		uint32_t stacksize
+    /* create a task */
+    fiber_t fiber_create(
+        void *(*func)(void *), 
+        void * args, 
+        void * stackaddr, 
+        uint32_t stacksize
     );
 
     /* yield will yield control to other task
