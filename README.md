@@ -10,7 +10,7 @@
 
 # Features:
 
-	1. Very compact, small code base
+	1. Very compact, small code base (< 1500 lines)
 	2. support 1:N and M:N scheduling (Thread Safe)
 	3. Fully integeraged with epoll
 	4. Stack Caching & Stack Protection
@@ -30,7 +30,7 @@
 	/* 5. usleep (task level usleep, wont hangup the thread)         */
 	/* 6. sched_yield                                                */
 	///////////////////////////////////////////////////////////////////
-	/* called @ system/thread startup */
+	/* called @ system startup */
 	bool FiberGlobalStartup();
 
 	/* create a task */
