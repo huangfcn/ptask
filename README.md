@@ -20,7 +20,7 @@
     8. Fully integeraged with epoll
 	
 # Pthread Style API
-
+	````C++
 	///////////////////////////////////////////////////////////////////
 	/* coroutine lib standard APIs:                                  */
 	/* 1. libary initialization                                      */
@@ -88,7 +88,7 @@
     uint64_t fiber_event_wait(uint64_t events_bitmask_waitingfor, int options, int timeout);
     int fiber_event_post(fiber_t the_task, uint64_t events_bitmask_in);
     ///////////////////////////////////////////////////////////////////
-
+    ```
 # epoll Integeration
 
     ///////////////////////////////////////////////////////////////////
