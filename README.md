@@ -108,7 +108,29 @@
     ///////////////////////////////////////////////////////////////////
 ```
 
-# Example 1: Block Queue With ptask
+# Example 1: Generator
+```c
+void * generator(void * args){
+    for (int i = 0; i < 1000; ++i){
+        fiber_yield(i);
+    }
+    return (void *)(0);
+}
+
+void * generator_maintask(void * args){
+    FibTCB * the_gen = fiber_create(generator, args, NULL, 8192 * 2);
+
+    for (int i = 0; i < 1000; ++i){
+        fiber_sched_yield();
+        int64_t code = fiber_resume(the_gen);
+        printf("code = %ld\n", code);
+    }
+
+    return (void *)(0);
+}
+```
+
+# Example 1: Blocking Queue (mutex + cv)
 ```c
 ////////////////////////////////////////////////////////////
 struct blockq_t {
@@ -206,9 +228,9 @@ void blockq_delete(blockq_t * bq)
     free(bq);
 }
 ////////////////////////////////////////////////////////////////
-'''
+```
 
-# Example 2: Read-Write Lock with ptask
+# Example 2: Read-Write Lock
 
 ```c
 
@@ -278,4 +300,50 @@ int rwlock_destroy(rwlock_t * locker){
     return 0;
 }
 ///////////////////////////////////////////////////////////////////////////////
-'''
+```
+
+# Example 3: port pipe (https://github.com/cgaebel/pipe)
+
+```c
+#elif defined(__PTHREAD__) /* pthread */
+
+#include <pthread.h>
+
+#define mutex_t pthread_mutex_t
+#define cond_t  pthread_cond_t
+
+#define mutex_init(m)  pthread_mutex_init((m), NULL)
+
+#define mutex_lock     pthread_mutex_lock
+#define mutex_unlock   pthread_mutex_unlock
+#define mutex_destroy  pthread_mutex_destroy
+
+#define cond_init(c)   pthread_cond_init((c), NULL)
+#define cond_signal    pthread_cond_signal
+#define cond_broadcast pthread_cond_broadcast
+#define cond_wait      pthread_cond_wait
+#define cond_destroy   pthread_cond_destroy
+
+#else  /* fiber */
+
+#include "task.h"
+
+#define mutex_t fiber_mutex_t
+#define cond_t  fiber_cond_t
+
+#define mutex_init(m)  fiber_mutex_init((m))
+
+#define mutex_lock     fiber_mutex_lock
+#define mutex_unlock   fiber_mutex_unlock
+#define mutex_destroy  fiber_mutex_destroy
+
+#define cond_init(c)   fiber_cond_init((c))
+#define cond_signal    fiber_cond_signal
+#define cond_broadcast fiber_cond_broadcast
+#define cond_wait      fiber_cond_wait
+#define cond_destroy   fiber_cond_destroy
+
+#endif /* windows */
+```
+
+# 
