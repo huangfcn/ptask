@@ -6,7 +6,7 @@
 	can provide coroutine aware synchronization methods. But most stackful coroutine 
 	libraries in C/C++ are asymetric with very simple API (create/yield/resume) only, 
 	so here comes ptask, a thread safe symetric coroutine library with pthread like 
-	synchronization APIs.  
+	synchronization APIs and more ...  
 
 # Features
 
