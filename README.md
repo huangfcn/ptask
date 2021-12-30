@@ -20,7 +20,7 @@
     8. Fully integeraged with epoll
 	
 # Pthread Style API
-	````C++
+	```C++
 	///////////////////////////////////////////////////////////////////
 	/* coroutine lib standard APIs:                                  */
 	/* 1. libary initialization                                      */
