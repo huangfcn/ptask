@@ -892,7 +892,7 @@ int fiber_event_post(FibTCB * the_task, uint64_t events_in){
 /////////////////////////////////////////////////////////////////////////
 /* fiber mutex                                                         */
 /////////////////////////////////////////////////////////////////////////
-int fiber_mutex_init(FibMutex * pmutex){
+static int fiber_mutex_init_(FibMutex * pmutex){
     memset(pmutex, 0, sizeof(FibMutex));
 
     spin_init(&(pmutex->qlock));
@@ -901,7 +901,7 @@ int fiber_mutex_init(FibMutex * pmutex){
     return (0);
 };
 
-bool fiber_mutex_lock(FibMutex * pmutex){
+static bool fiber_mutex_lock_(FibMutex * pmutex){
     FibTCB * the_task = current_task;
     if (pmutex->holder == ((uint64_t)the_task)){
         pmutex->reentries += 1;
@@ -936,7 +936,7 @@ bool fiber_mutex_lock(FibMutex * pmutex){
     return true;
 }
 
-bool fiber_mutex_unlock(FibMutex * pmutex){
+static bool fiber_mutex_unlock_(FibMutex * pmutex){
     FibTCB * the_task = current_task;
     if (pmutex->holder != (uint64_t)(the_task)){
         return false;
@@ -991,10 +991,17 @@ bool fiber_mutex_unlock(FibMutex * pmutex){
     return true;
 }
 
-bool fiber_mutex_destroy(FibMutex * pmtx){
+static bool fiber_mutex_destroy_(FibMutex * pmtx){
     spin_destroy(&(pmtx->qlock));
     return true;
 }
+
+#if !defined(__1_N_MODEL__)
+int  fiber_mutex_init   (FibMutex * pmutex) __attribute__((alias("fiber_mutex_init_"  )));
+bool fiber_mutex_lock   (FibMutex * pmutex) __attribute__((alias("fiber_mutex_lock_"  )));
+bool fiber_mutex_unlock (FibMutex * pmutex) __attribute__((alias("fiber_mutex_unlock_")));
+bool fiber_mutex_destroy(FibMutex * pmutex) __attribute__((alias("fiber_mutex_destroy_")));
+#endif 
 /////////////////////////////////////////////////////////////////////////
 
 /////////////////////////////////////////////////////////////////////////
