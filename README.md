@@ -1,7 +1,7 @@
 # ptask
 	ptask is a symetric stackful coroutine (task/fiber) library with pthread like API. 
 	Although C++20 goes with stackless corouines, stackful coroutine with a much more 
-	elegent way of waiting/resuming still has its ground. Since stackful 
+	elegent way of yielding/resuming still has its ground. Since stackful 
 	coroutine (task) is very close to thread, it will be convenient if the library 
 	can provide coroutine aware synchronization methods. But most stackful coroutine 
 	libraries in C/C++ are asymetric with very simple API (create/yield/resume) only, 
