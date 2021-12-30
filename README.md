@@ -11,13 +11,14 @@
 # Features:
 
 	1. Very compact, small code base (< 1500 lines)
-	2. support 1:N and M:N scheduling (Thread Safe)
-	3. Fully integeraged with epoll
-	4. Stack Caching & Stack Protection
-	5. support coroutine aware pthread style mutex/semaphore/condition synchronization
-	6. support coroutine ware timeout/sleep (usleep)
-	7. support task local variables
-
+	2. Support 1:N and M:N scheduling (Thread Safe)
+	3. Stack caching & stack Protection
+	4. Support coroutine aware pthread style mutex/semaphore/condition synchronization
+	5. Support bitmask event synchronization to natually integerate async events 
+	6. Support coroutine ware timeout/sleep (usleep)
+	7. Support task local variables
+    8. Fully integeraged with epoll
+	
 # Pthread Style API
 
 	///////////////////////////////////////////////////////////////////
@@ -81,9 +82,11 @@
     bool fiber_cond_broadcast(fiber_cond_t * pcond);
     void fiber_cond_destroy(fiber_cond_t * pcond);
 
-    /* Extremely efficient bitmask based Events (ptask specific) */
-    uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout);
-    int fiber_event_post(fiber_t the_task, uint64_t events_in);
+    /* Extremely efficient bitmask based Events (ptask specific) 
+    *  A task can wait for up to 64 events by specifying waiting any event or all events
+    */
+    uint64_t fiber_event_wait(uint64_t events_bitmask_waitingfor, int options, int timeout);
+    int fiber_event_post(fiber_t the_task, uint64_t events_bitmask_in);
     ///////////////////////////////////////////////////////////////////
 
 # epoll Integeration
