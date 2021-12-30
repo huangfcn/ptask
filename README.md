@@ -8,7 +8,7 @@
 	so here comes ptask, a thread safe symetric coroutine library with pthread like 
 	synchronization APIs.  
 
-# Features:
+# Features
 
 	1. Very compact, small code base (< 1500 lines)
 	2. Support 1:N and M:N scheduling (thread safe)
