@@ -302,11 +302,12 @@ int rwlock_destroy(rwlock_t * locker){
 ///////////////////////////////////////////////////////////////////////////////
 ```
 
-# Example 4: port pipe (https://github.com/cgaebel/pipe)
+# Example 4: porting pipe (https://github.com/cgaebel/pipe)
 
 
 ```c
 // a mapping of pthread to ptask synchronization API
+// that's everything we need to do to port pipe from pthread to ptask
 #elif defined(__PTHREAD__) /* pthread */
 
 #include <pthread.h>
