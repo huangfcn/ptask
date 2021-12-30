@@ -2,7 +2,7 @@
 	ptask is a symetric stackful coroutine (task/fiber) library with pthread like API. 
 	Although c++20 goes with stackless corouines, stackful coroutine with its much more 
 	elegent way of waiting/resuming still has its own fields. Since stackful 
-	coroutine (task) is very close to thread, it will be very convenient if the library 
+	coroutine (task) is very close to thread, it will be convenient if the library 
 	can provide coroutine aware synchronization methods. But most stackful coroutine 
 	libraries in C/C++ are asymetric with very simple API (create/yield/resume) only, 
 	so here comes ptask, a thread safe symetric coroutine library with pthread like 
@@ -18,7 +18,7 @@
 	6. support coroutine ware timeout/sleep (usleep)
 	7. support task local variables
 
-# Pthread style API
+# Pthread Style API
 
 	///////////////////////////////////////////////////////////////////
 	/* coroutine lib standard APIs:                                  */
@@ -85,6 +85,8 @@
     uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout);
     int fiber_event_post(FibTCB * the_task, uint64_t events_in);
     ///////////////////////////////////////////////////////////////////
+
+# epoll Integeration
 
     ///////////////////////////////////////////////////////////////////
     /* epoll integeration                                            */
