@@ -1,14 +1,15 @@
-# libfiber
-	
-	A compact stackful coroutines library (in C). Features:
+# libptask
+	ptask is a symetric stackful coroutine (task/fiber) library with pthread like API. Although c++20 goes with stackless corouines, stackful coroutine with its much more elegent way of waiting/resuming still has its own fields. Since stackful coroutine (task) is very close to thread, it will be very convenient if the library can provide coroutine aware synchronization methods. But most stackful coroutine libraries in C/C++ are asymetric with very simple API (create/yield/resume) only, so here comes ptask, a thread safe symetric coroutine library with pthread like synchronization APIs.  
+
 	1. Very compact, small code base
-	2. M:N scheduling (Multiple threads suported)
+	2. support 1:N and M:N scheduling (Multiple threads)
 	3. Fully integeraged with epoll
-	3. Stack Caching & Stack Protection
-	4. Timeout supported
+	4. Stack Caching & Stack Protection
+	5. support coroutine aware pthread style mutex/semaphore/condition synchronization
+	6. support coroutine ware timeout/sleep (usleep)
+	7. support task local variables
 
-
-# Simple API
+# Pthread style API
 
 	///////////////////////////////////////////////////////////////////
 	/* coroutine lib standard APIs:                                  */
@@ -21,11 +22,10 @@
 	/* 6. sched_yield                                                */
 	///////////////////////////////////////////////////////////////////
 	/* called @ system/thread startup */
-	bool FibTaskGlobalStartup();
-	bool FibTaskThreadStartup();
+	bool FiberGlobalStartup();
 
 	/* create a task */
-	FibTCB * fibtask_create(
+	FibTCB * fiber_create(
 		void *(*func)(void *), 
 		void * args, 
 		void * stackaddr, 
@@ -35,31 +35,60 @@
     /* yield will yield control to other task
     * current task will suspend until resume called on it
     */
-    FibTCB * fibtask_yield(uint64_t code);
-    uint64_t fibtask_resume(FibTCB * the_task);
+    FibTCB * fiber_yield(uint64_t code);
+    uint64_t fiber_resume(FibTCB * the_task);
 
     /* identify current running task */
-    FibTCB * fibtask_ident();
+    FibTCB * fiber_ident();
 
     /* task usleep (accurate at ms level)*/
-    void fibtask_usleep(int usec);
+    void fiber_usleep(int usec);
 
     /* same functionality of sched_yield, yield the processor
     * sched_yield causes the calling task to relinquish the CPU.
     * The task is moved to the end of the ready queue and 
     * a new task gets to run.
     */
-    FibTCB * fibtask_sched_yield();
+    FibTCB * fiber_sched_yield();
+
+    /* mutex */
+    int  fiber_mutex_init(fiber_mutex_t * the_mutex);
+    bool fiber_mutex_lock(fiber_mutex_t * the_mutex);
+    bool fiber_mutex_unlock(fiber_mutex_t * the_mutex);
+    void fiber_mutex_destroy(fiber_mutex_t * the_mutex);
+
+    /* sempahore */
+    int  fiber_sem_init(FibSemaphore * psem, int initval);
+    bool fiber_sem_wait(FibSemaphore * psem);
+    bool fiber_sem_timedwait(FibSemaphore * psem, int timeout);
+    bool fiber_sem_post(FibSemaphore * psem);
+    void fiber_sem_destroy(FibSemaphore * psem);
+
+    /* Conditional Variables */
+    int  fiber_cond_init(FibCondition * pcond);
+    bool fiber_cond_wait(FibCondition * pcond, FibMutex * pmutex);
+    bool fiber_cond_timedwait(FibCondition * pcond, FibMutex * pmutex, int timeout);
+    bool fiber_cond_signal(FibCondition * pcond);
+    bool fiber_cond_broadcast(FibCondition * pcond);
+    void fiber_cond_destroy(FibCondition * pcond);
+
+    /* Extremely efficient bitmask based Events (ptask specific) */
+    uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout);
+    int fiber_event_post(FibTCB * the_task, uint64_t events_in);
     ///////////////////////////////////////////////////////////////////
 
     ///////////////////////////////////////////////////////////////////
     /* epoll integeration                                            */
     ///////////////////////////////////////////////////////////////////
-    struct epoll_event;
-    int fibtask_register_events(int fd, int events);
-    int fibtask_epoll_wait(
-    	struct epoll_event * events, 
-    	int maxEvents, 
-    	int timeout_in_ms
-    );
+    int fiber_epoll_register_events(int fd, int events);
+    int fiber_epoll_unregister_event(FibTCB * the_tcb, int index);
+    int fiber_epoll_wait(
+        struct epoll_event * events, 
+        int maxEvents, 
+        int timeout_in_ms
+        );
+    int fiber_epoll_post(
+        int nEvents,
+        struct epoll_event * events
+        );
     ///////////////////////////////////////////////////////////////////
