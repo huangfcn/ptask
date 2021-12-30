@@ -11,7 +11,7 @@
 # Features:
 
 	1. Very compact, small code base
-	2. support 1:N and M:N scheduling (Multiple threads)
+	2. support 1:N and M:N scheduling (Thread Safe)
 	3. Fully integeraged with epoll
 	4. Stack Caching & Stack Protection
 	5. support coroutine aware pthread style mutex/semaphore/condition synchronization
@@ -67,19 +67,19 @@
     void fiber_mutex_destroy(fiber_mutex_t * the_mutex);
 
     /* sempahore */
-    int  fiber_sem_init(FibSemaphore * psem, int initval);
-    bool fiber_sem_wait(FibSemaphore * psem);
-    bool fiber_sem_timedwait(FibSemaphore * psem, int timeout);
-    bool fiber_sem_post(FibSemaphore * psem);
-    void fiber_sem_destroy(FibSemaphore * psem);
+    int  fiber_sem_init(fiber_sem_t * psem, int initval);
+    bool fiber_sem_wait(fiber_sem_t * psem);
+    bool fiber_sem_timedwait(fiber_sem_t * psem, int timeout);
+    bool fiber_sem_post(fiber_sem_t * psem);
+    void fiber_sem_destroy(fiber_sem_t * psem);
 
     /* Conditional Variables */
-    int  fiber_cond_init(FibCondition * pcond);
-    bool fiber_cond_wait(FibCondition * pcond, FibMutex * pmutex);
-    bool fiber_cond_timedwait(FibCondition * pcond, FibMutex * pmutex, int timeout);
-    bool fiber_cond_signal(FibCondition * pcond);
-    bool fiber_cond_broadcast(FibCondition * pcond);
-    void fiber_cond_destroy(FibCondition * pcond);
+    int  fiber_cond_init(fiber_cond_t * pcond);
+    bool fiber_cond_wait(fiber_cond_t * pcond, fiber_mutex_t * pmutex);
+    bool fiber_cond_timedwait(fiber_cond_t * pcond, fiber_mutex_t * pmutex, int timeout);
+    bool fiber_cond_signal(fiber_cond_t * pcond);
+    bool fiber_cond_broadcast(fiber_cond_t * pcond);
+    void fiber_cond_destroy(fiber_cond_t * pcond);
 
     /* Extremely efficient bitmask based Events (ptask specific) */
     uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout);
