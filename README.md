@@ -11,8 +11,8 @@
 # Features:
 
 	1. Very compact, small code base (< 1500 lines)
-	2. Support 1:N and M:N scheduling (Thread Safe)
-	3. Stack caching & stack Protection
+	2. Support 1:N and M:N scheduling (thread safe)
+	3. Stack caching & stack protection
 	4. Support coroutine aware pthread style mutex/semaphore/condition synchronization
 	5. Support bitmask event synchronization to natually integerate async events 
 	6. Support coroutine ware timeout/sleep (usleep)
