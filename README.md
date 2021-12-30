@@ -34,7 +34,7 @@
 	bool FiberGlobalStartup();
 
 	/* create a task */
-	FibTCB * fiber_create(
+	fiber_t fiber_create(
 		void *(*func)(void *), 
 		void * args, 
 		void * stackaddr, 
@@ -44,11 +44,11 @@
     /* yield will yield control to other task
     * current task will suspend until resume called on it
     */
-    FibTCB * fiber_yield(uint64_t code);
-    uint64_t fiber_resume(FibTCB * the_task);
+    fiber_t fiber_yield(uint64_t code);
+    uint64_t fiber_resume(fiber_t the_task);
 
     /* identify current running task */
-    FibTCB * fiber_ident();
+    fiber_t fiber_ident();
 
     /* task usleep (accurate at ms level)*/
     void fiber_usleep(int usec);
@@ -58,7 +58,7 @@
     * The task is moved to the end of the ready queue and 
     * a new task gets to run.
     */
-    FibTCB * fiber_sched_yield();
+    fiber_t fiber_sched_yield();
 
     /* mutex */
     int  fiber_mutex_init(fiber_mutex_t * the_mutex);
@@ -83,7 +83,7 @@
 
     /* Extremely efficient bitmask based Events (ptask specific) */
     uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout);
-    int fiber_event_post(FibTCB * the_task, uint64_t events_in);
+    int fiber_event_post(fiber_t the_task, uint64_t events_in);
     ///////////////////////////////////////////////////////////////////
 
 # epoll Integeration
@@ -92,7 +92,7 @@
     /* epoll integeration                                            */
     ///////////////////////////////////////////////////////////////////
     int fiber_epoll_register_events(int fd, int events);
-    int fiber_epoll_unregister_event(FibTCB * the_tcb, int index);
+    int fiber_epoll_unregister_event(fiber_t the_tcb, int index);
     int fiber_epoll_wait(
         struct epoll_event * events, 
         int maxEvents, 
