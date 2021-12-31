@@ -89,7 +89,7 @@
     int fiber_event_post(fiber_t the_task, uint64_t events_bitmask_in);
     ///////////////////////////////////////////////////////////////////
 ```
-# epoll Integeration
+# epoll Integration
 ```c
     ///////////////////////////////////////////////////////////////////
     /* epoll integeration                                            */
