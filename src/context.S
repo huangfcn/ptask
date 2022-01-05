@@ -35,44 +35,30 @@ swap_context:
 
   jmpq *%rax
 
-  # goto for thread maintask
+  # goto for thread maintask 
+  # setup stack & save registers, 
+  # so we will be able to return thread safely
   .align 32
   .global goto_contxt2
 goto_contxt2:
   # save r12 and r15 into stack
   pushq %r12
   pushq %r15
-
+  
   # make a return addres
-  lea rethere(%rip), %rax
+  lea ret_here(%rip), %rax
   pushq %rax
 
   # update sp
-  lea 0x00(%rsp), %rcx
-  
-  mov %r13,       0x08(%rdi)
-  mov %r14,       0x10(%rdi)
-  
-  mov %rcx,       0x28(%rdi)
-  mov %rbx,       0x30(%rdi)
-  mov %rbp,       0x38(%rdi)
-  jmp goto_context
+  lea 0x00(%rsp), %rax
+  mov %rax, 0x28(%rdi)
 
-rethere:
+  # get cpp_main & args
+  mov 0x18(%rdi), %rax
+  mov 0x00(%rdi), %rdi
+  jmp *%rax
+
+ret_here:
   popq %r15
   popq %r12
   ret
-
-  .align 32
-  .global goto_context
-goto_context:
-  mov 0x00(%rdi), %r12
-  mov 0x08(%rdi), %r13
-  mov 0x10(%rdi), %r14
-  mov 0x18(%rdi), %r15
-  mov 0x20(%rdi), %rax
-  mov 0x28(%rdi), %rcx
-  mov 0x30(%rdi), %rbx
-  mov 0x38(%rdi), %rbp
-  mov %rcx,       %rsp
-  jmpq *%rax

@@ -1488,7 +1488,13 @@ static void * fiber_scheduler(void * args){
         // /* nothing to run, sleep for a while if come to here */
         // __usleep__(10);
         // #endif
+
+        if (unlikely(getLocalFibTasksVal(the_scheduler) == 1)){
+            break;
+        }
     }
+
+    return (void *)(0);
 }
 
 void * pthread_scheduler(void * args){
