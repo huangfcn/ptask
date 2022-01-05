@@ -734,7 +734,10 @@ static inline int fiber_watchdog_tickle(FibTCB * the_scheduler, int gap){
                 /* semaphore & condition variable only operate when seized the control */
                 FibSemaphore * psem = (FibSemaphore *)(the_task->waitingObject);
                 spin_lock(&(psem->qlock));
-                if (the_task->state & (STATES_WAITFOR_SEMPH | STATES_WAITFOR_CONDV)){
+                #ifndef __1_N_MODEL__
+                if (the_task->state & (STATES_WAITFOR_SEMPH | STATES_WAITFOR_CONDV))
+                #endif
+                {
                     /* clear WAITING STATES */
                     the_task->state &= (~(STATES_WAITFOR_SEMPH | STATES_WAITFOR_CONDV));
 
@@ -748,12 +751,18 @@ static inline int fiber_watchdog_tickle(FibTCB * the_scheduler, int gap){
             }
             else if (the_task->state & STATES_WAITFOR_EVENT){
                 spin_lock(&(the_task->eventlock));
-                if (the_task->state & STATES_WAITFOR_EVENT){
+                #ifndef __1_N_MODEL__
+                if (the_task->state & STATES_WAITFOR_EVENT)
+                #endif
+                {
                     /* clear WAITING STATES */
                     the_task->state &= (~STATES_WAITFOR_EVENT);
 
                     /* always call from scheduler's thread */
                     localReadyQProtectedInsertBefore(the_task->scheduler, the_task);
+
+                    /* wakeup */
+                    /* printf("%p waked up by timer.\n", the_task); */
                 }
                 spin_unlock(&(the_task->eventlock));
             }
