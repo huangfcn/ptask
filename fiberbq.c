@@ -10,12 +10,14 @@
 #include "fiberq.h"
 
 #define copyint(from, to) do {*to = *from;} while(0)
-FIBERQ_PROTOTYPE_STATIC(fiberbq, int, copyint, FIBER_TIMEOUT_INFINITE, 8);
+FIBERQ_PROTOTYPE_STATIC(fiberbq, int, copyint, 1024);
 
 static fiberbq_t bq;
 
-#define NUM_PRODUCERS   (8)
-#define NUM_CONSUMERS   (8)
+#define NUM_PRODUCERS   (8192)
+#define NUM_CONSUMERS   (8192)
+
+static volatile uint64_t nPosted = 0ULL, nRecved = 0ULL; 
 
 // producer is fast
 void *producer(void *arg)
@@ -23,16 +25,17 @@ void *producer(void *arg)
     fiberbq_t * the_q = (fiberbq_t *)(&bq);
     int index = (int)(int64_t)(arg);
     while (true) {
-        int i = rand() % 26;
+        // int i = rand() % 26;
 
-        int val = 'A' + i;
+        int val = 'A'; // + i;
         fiberbq_push(the_q, &val);
         // if ((index & 8191) == 0)
-            printf("producer %2d: sent %c\n", index, val);
+        //     printf("producer %2d: sent %c\n", index, val);
 
-        int timo = rand() % 2500 + 500;
-        fiber_usleep(timo * 1000);
-        // fiber_sched_yield();
+        // int timo = rand() % 2500 + 500;
+        // fiber_usleep(timo * 1000);
+        fiber_sched_yield();
+        FAA(&nPosted);
     }
     return NULL;
 }
@@ -46,10 +49,11 @@ void *consumer(void *arg)
         int val;
         fiberbq_pop(the_q, &val);
         // if ((index & 8191) == 4095)
-            printf("consumer %2d: received %c\n", index, val);
-        int timo = rand() % 2500 + 500;
-        fiber_usleep(timo * 1000);
-        // fiber_sched_yield();
+        //     printf("consumer %2d: received %c\n", index, val);
+        // int timo = rand() % 2500 + 500;
+        // fiber_usleep(timo * 1000);
+        fiber_sched_yield();
+        FAA(&nRecved);
     }
     return NULL;
 }
@@ -100,8 +104,13 @@ int main(int argc, char ** argv){
       .threadCleanup = NULL,
       .args = (void *)(&bq),
     };
+    pthread_create(&tid, NULL, pthread_scheduler, &args); sleep(1);
 
-    pthread_scheduler(&args);
+    while (true){
+        sleep(10);
+        printf("message posted = %16lu, message received = %16lu\n", nPosted, nRecved);
+    }
+    // pthread_scheduler(&args);
 
     return (0);
 }

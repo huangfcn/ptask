@@ -6,8 +6,8 @@
 
 #include "task.h"
 
-#ifndef __FIBERQ_MPMC_H__
-#define __FIBERQ_MPMC_H__
+#ifndef __FIBERQ_RBQ_H__
+#define __FIBERQ_RBQ_H__
 
 #define FIBERQ_HEAD(name, type)                                         \
     typedef struct name##_t {                                           \
@@ -15,9 +15,9 @@
         int32_t tail;                                                   \
         size_t  ndat;                                                   \
         size_t  size;                                                   \
-        fiber_mutex_t  lock;                                            \
-        fiber_sem_t sem_dat;                                            \
-        fiber_sem_t sem_spc;                                            \
+        fiber_mutex_t lock;                                             \
+        fiber_cond_t  empt;                                             \
+        fiber_cond_t  full;                                             \
         type   * data;                                                  \
     } name##_t;
 
@@ -27,9 +27,9 @@
         int32_t tail;                                                   \
         size_t  ndat;                                                   \
         size_t  size;                                                   \
-        fiber_mutex_t  lock;                                            \
-        fiber_sem_t sem_dat;                                            \
-        fiber_sem_t sem_spc;                                            \
+        fiber_mutex_t lock;                                             \
+        fiber_cond_t  empt;                                             \
+        fiber_cond_t  full;                                             \
         type     data[_SIZE];                                           \
     } name##_t;
 
@@ -43,8 +43,8 @@
         rbq->tail = 0;                                                  \
         rbq->ndat = 0;                                                  \
                                                                         \
-        fiber_sem_init(&(rbq->sem_dat), 0    );                         \
-        fiber_sem_init(&(rbq->sem_spc), qsize);                         \
+        fiber_cond_init (&(rbq->full));                                 \
+        fiber_cond_init (&(rbq->empt));                                 \
         fiber_mutex_init(&(rbq->lock));                                 \
                                                                         \
         rbq->data = (type *)_aligned_malloc(                            \
@@ -66,8 +66,8 @@
         rbq->tail = 0;                                                  \
         rbq->ndat = 0;                                                  \
                                                                         \
-        fiber_sem_init(&(rbq->sem_dat),     0);                         \
-        fiber_sem_init(&(rbq->sem_spc), _SIZE);                         \
+        fiber_cond_init (&(rbq->full));                                 \
+        fiber_cond_init (&(rbq->empt));                                 \
         fiber_mutex_init(&(rbq->lock));                                 \
                                                                         \
         memset(                                                         \
@@ -81,24 +81,18 @@
     {                                                                   \
         _aligned_free(rbq->data);                                       \
                                                                         \
-        fiber_sem_destroy(&(rbq->sem_dat));                             \
-        fiber_sem_destroy(&(rbq->sem_spc));                             \
-        fiber_mutex_destroy( &(rbq->lock));                             \
+        fiber_cond_destroy (&(rbq->full));                              \
+        fiber_cond_destroy (&(rbq->empt));                              \
+        fiber_mutex_destroy(&(rbq->lock));                              \
     };
 
 #define FIBERQ_FREE_STATIC(name)                                        \
     static inline void name##_free(name##_t* rbq)                       \
     {                                                                   \
-        fiber_sem_destroy(&(rbq->sem_dat));                             \
-        fiber_sem_destroy(&(rbq->sem_spc));                             \
-        fiber_mutex_destroy( &(rbq->lock));                             \
+        fiber_cond_destroy (&(rbq->full));                              \
+        fiber_cond_destroy (&(rbq->empt));                              \
+        fiber_mutex_destroy(&(rbq->lock));                              \
     };
-
-#define FIBERQ_TIMEDWAIT(name, us)                                      \
-    static inline bool name##_timedwait(fiber_sem_t * sem)              \
-    {                                                                   \
-        return fiber_sem_timedwait(sem, us);                            \
-    }
 
 #define FIBERQ_FULL(name)                                               \
     static inline bool name##_full(const name##_t* rbq)                 \
@@ -124,19 +118,18 @@
         name##_t* rbq, const type * pdata                               \
     )                                                                   \
     {                                                                   \
-        if (!name##_timedwait(&(rbq->sem_spc))){                        \
-            return false;                                               \
+        fiber_mutex_lock(&(rbq->lock));                                 \
+        while (rbq->ndat >= rbq->size) {                                \
+            fiber_cond_wait(&rbq->full, &rbq->lock);                    \
         }                                                               \
                                                                         \
-        fiber_mutex_lock(&(rbq->lock));                                 \
         type * pnode = rbq->data + rbq->head;                           \
         copyfunc(pdata, pnode);                                         \
         rbq->head = (rbq->head + 1) % (rbq->size);                      \
         rbq->ndat = (rbq->ndat + 1) ;                                   \
-        fiber_mutex_unlock(&(rbq->lock));                               \
                                                                         \
-        /* done - update status */                                      \
-        fiber_sem_post(&(rbq->sem_dat));                                \
+        fiber_cond_signal (&rbq->empt);                                 \
+        fiber_mutex_unlock(&rbq->lock);                                 \
         return true;                                                    \
     };
 
@@ -146,23 +139,22 @@
         name##_t* rbq, type * pdata                                     \
     )                                                                   \
     {                                                                   \
-        if (!name##_timedwait(&(rbq->sem_dat))){                        \
-            return false;                                               \
+        fiber_mutex_lock(&(rbq->lock));                                 \
+        while (rbq->ndat <= 0) {                                        \
+            fiber_cond_wait(&rbq->empt, &rbq->lock);                    \
         }                                                               \
                                                                         \
-        fiber_mutex_lock(&(rbq->lock));                                 \
         type * pnode = rbq->data + rbq->tail;                           \
         copyfunc(pnode, pdata);                                         \
         rbq->tail = (rbq->tail + 1) % (rbq->size);                      \
         rbq->ndat = (rbq->ndat - 1) ;                                   \
-        fiber_mutex_unlock(&(rbq->lock));                               \
                                                                         \
-        /* done - update status */                                      \
-        fiber_sem_post(&(rbq->sem_spc));                                \
+        fiber_cond_signal (&rbq->full);                                 \
+        fiber_mutex_unlock(&rbq->lock);                                 \
         return true;                                                    \
     };
 
-#define FIBERQ_PROTOTYPE(name, type, copyfunc, _tmo_us)                 \
+#define FIBERQ_PROTOTYPE(name, type, copyfunc)                          \
     FIBERQ_HEAD(name, type);                                            \
                                                                         \
     FIBERQ_INIT(name, type);                                            \
@@ -172,12 +164,10 @@
     FIBERQ_EMPT(name);                                                  \
     FIBERQ_SIZE(name);                                                  \
                                                                         \
-    FIBERQ_TIMEDWAIT(name, _tmo_us);                                    \
-                                                                        \
     FIBERQ_PUSH(name, type, copyfunc);                                  \
     FIBERQ_POP (name, type, copyfunc);
 
-#define FIBERQ_PROTOTYPE_STATIC(name, type, copyfunc, _tmo_us, _SIZE)   \
+#define FIBERQ_PROTOTYPE_STATIC(name, type, copyfunc, _SIZE)            \
     FIBERQ_HEAD_STATIC(name, type, _SIZE);                              \
                                                                         \
     FIBERQ_INIT_STATIC(name, type, _SIZE);                              \
@@ -186,8 +176,6 @@
     FIBERQ_FULL(name);                                                  \
     FIBERQ_EMPT(name);                                                  \
     FIBERQ_SIZE(name);                                                  \
-                                                                        \
-    FIBERQ_TIMEDWAIT(name, _tmo_us);                                    \
                                                                         \
     FIBERQ_PUSH(name, type, copyfunc);                                  \
     FIBERQ_POP (name, type, copyfunc);

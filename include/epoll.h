@@ -58,10 +58,10 @@ static inline int fiber_epoll_post(
     struct epoll_event * events
 )
 {
-    if (nEvents){
+    for (int i = 0; i < nEvents; ++i){
         // assert(nEvents == 1);
-        EventContext * ctx = (EventContext *)(events[0].data.ptr);
-        ctx->events = events[0].events;
+        EventContext * ctx = (EventContext *)(events[i].data.ptr);
+        ctx->events = events[i].events;
         fiber_event_post(ctx->tcb, EVENT_BITMASK_EPOLL);
     }
     return (0);

@@ -35,16 +35,11 @@ swap_context:
 
   jmpq *%rax
 
-  # goto for thread maintask 
-  # setup stack & save registers, 
-  # so we will be able to return thread safely
+  # goto thread maintask, setup stack properly, 
+  # so we will be able to return caller safely
   .align 32
   .global goto_contxt2
-goto_contxt2:
-  # save r12 and r15 into stack
-  pushq %r12
-  pushq %r15
-  
+goto_contxt2:  
   # make a return addres
   lea ret_here(%rip), %rax
   pushq %rax
@@ -59,6 +54,4 @@ goto_contxt2:
   jmp *%rax
 
 ret_here:
-  popq %r15
-  popq %r12
   ret
