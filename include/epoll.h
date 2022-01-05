@@ -1,6 +1,9 @@
 #ifndef __LIBFIB_EPOLL_H__
 #define __LIBFIB_EPOLL_H__
 
+#define EVENT_BITMASK_EPOLL     (1ULL)
+#define EPOLL_TASKDAT_INDEX     (0   )
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -8,38 +11,61 @@ struct EventContext;
 typedef struct EventContext EventContext;
 
 struct EventContext{
-    int   index;
-
     int   fd;
-    int   events_i;
-    int   events_o;
+    int   events;
 
     struct FibTCB * tcb;
 };
-
-typedef struct EventContextControlBlock {
-    uint64_t maxEvents;
-    uint64_t usedEventMask;
-    
-    int      epoll_fd;
-
-    EventContext * ctxs;
-} EventContextControlBlock;
 
 ///////////////////////////////////////////////////////////////////
 /* epoll integeration                                            */
 ///////////////////////////////////////////////////////////////////
 struct epoll_event;
-int fiber_epoll_register_events(int fd, int events);
-int fiber_epoll_wait(
+int fiber_epoll_register_events(int epoll_fd, int fd, int events);
+int fiber_epoll_unregister_events(int epoll_fd, int fd);
+// int fiber_epoll_wait(
+//     struct epoll_event * events, 
+//     int maxEvents, 
+//     int timeout_in_ms
+//     );
+// int fiber_epoll_post(
+//     int nEvents,
+//     struct epoll_event * events
+//     );
+
+static inline int fiber_epoll_wait(
     struct epoll_event * events, 
     int maxEvents, 
     int timeout_in_ms
-    );
-int fiber_epoll_post(
+){
+    // assert(maxEvents == 1);
+
+    uint64_t mask = fiber_event_wait(EVENT_BITMASK_EPOLL, TASK_EVENT_WAIT_ANY, timeout_in_ms * 1000);
+
+    FibTCB * the_task = fiber_ident();
+    EventContext * pctx = (EventContext *)fiber_get_localdata(the_task, EPOLL_TASKDAT_INDEX);
+    if (mask & EVENT_BITMASK_EPOLL){
+        events[0].events  = pctx->events;
+        events[0].data.fd = pctx->fd;
+
+        return 1;
+    }
+    return 0;
+}
+
+static inline int fiber_epoll_post(
     int nEvents,
     struct epoll_event * events
-    );
+)
+{
+    if (nEvents){
+        // assert(nEvents == 1);
+        EventContext * ctx = (EventContext *)(events[0].data.ptr);
+        ctx->events = events[0].events;
+        fiber_event_post(ctx->tcb, EVENT_BITMASK_EPOLL);
+    }
+    return (0);
+}
 ///////////////////////////////////////////////////////////////////
 
 ///////////////////////////////////////////////////////////////////

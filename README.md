@@ -15,9 +15,9 @@
 	3. Stack caching & stack protection
 	4. Support coroutine aware pthread style mutex/semaphore/condition synchronization
 	5. Support bitmask event synchronization to natually integerate async events 
-	6. Support coroutine aware timeout/sleep (usleep)
+	6. Support coroutine ware timeout/sleep (usleep)
 	7. Support task local variables
-    8. Fully integrated with epoll
+    8. Fully integeraged with epoll
 	
 # Pthread Style API
 ```c
@@ -89,7 +89,7 @@
     int fiber_event_post(fiber_t the_task, uint64_t events_bitmask_in);
     ///////////////////////////////////////////////////////////////////
 ```
-# epoll Integration
+# epoll Integeration
 ```c
     ///////////////////////////////////////////////////////////////////
     /* epoll integeration                                            */

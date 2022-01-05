@@ -1,132 +1,53 @@
 #include <sys/epoll.h>
 #include <stdio.h>
 
+#include <assert.h>
+
 #include "task.h"
 #include "epoll.h"
 
 /////////////////////////////////////////////////////////////////////////
-/* Macro Loop on Set Bit                                               */
-/////////////////////////////////////////////////////////////////////////
-#define callback_on_setbit(bitset, callback)  do {                      \
-    size_t p = 0;                                                       \
-    while (bitset != 0) {                                               \
-        switch (bitset & 0xf) {                                         \
-            case 0:                                    break;           \
-            case 1:  callback(p);                      break;           \
-            case 2:  callback(p + 1);                  break;           \
-            case 3:  callback(p);     callback(p + 1); break;           \
-            case 4:  callback(p + 2);                  break;           \
-            case 5:  callback(p);     callback(p + 2); break;           \
-            case 6:  callback(p + 1); callback(p + 2); break;           \
-            case 7:  callback(p);     callback(p + 1);                  \
-                     callback(p + 2);                  break;           \
-            case 8:  callback(p + 3);                  break;           \
-            case 9:  callback(p);     callback(p + 3); break;           \
-            case 10: callback(p + 1); callback(p + 3); break;           \
-            case 11: callback(p);     callback(p + 1);                  \
-                     callback(p + 3);                  break;           \
-            case 12: callback(p + 2); callback(p + 3); break;           \
-            case 13: callback(p);     callback(p + 2);                  \
-                     callback(p + 3);                  break;           \
-            case 14: callback(p + 1); callback(p + 2);                  \
-                     callback(p + 3);                  break;           \
-            case 15: callback(p);     callback(p + 1);                  \
-                     callback(p + 2); callback(p + 3); break;           \
-        }                                                               \
-        bitset >>= 4;                                                   \
-        p += 4;                                                         \
-    }                                                                   \
-} while(0)
-/////////////////////////////////////////////////////////////////////////
-
-/////////////////////////////////////////////////////////////////////////
 /* EPOLL BINDING                                                       */
 /////////////////////////////////////////////////////////////////////////
-int fiber_epoll_register_events(int fd, int events){
+int fiber_epoll_register_events(int epoll_fd, int fd, int events){
     FibTCB * the_task = fiber_ident();
-
-    EventContextControlBlock * pcb = (EventContextControlBlock *)fiber_get_localdata(the_task, 0);
-    int index = __ffs64(pcb->usedEventMask);
-    if (unlikely((index == 0) || (index > pcb->maxEvents))){return -1;};
-    
-    int epoll_fd = pcb->epoll_fd;
-
-    /* decrease index -> 0 based */
-    --index;
-
-    EventContext * pctx = &(pcb->ctxs[index]);
+    EventContext * pctx = (EventContext *)malloc(sizeof(EventContext));
+    if (pctx == NULL){
+        return -1;
+    }
 
     /* fill the EventContext */
-    pctx->fd       = fd; 
-    pctx->events_i = events;
-    pctx->index    = index;
+    pctx->fd       = fd;
     pctx->tcb      = the_task;
-
-    /* remove unused mask bit */
-    pcb->usedEventMask &= (~(1ULL << (index)));
 
     struct epoll_event event;
     event.data.ptr = (void *)pctx;
     event.events   = events;
 
     if (unlikely(epoll_ctl(epoll_fd, EPOLL_CTL_ADD, fd, &event) < 0)){
-        pcb->usedEventMask |= (1ULL << index);
+        free(pctx);
         return (-1);
     }
-    return (index);
-}
 
-static inline int fiber_epoll_polling_events(
-    FibTCB * the_task, 
-    uint64_t mask,
-    struct epoll_event * events
-    ){
-    int n = 0;
-    EventContextControlBlock * pcb = (EventContextControlBlock *)fiber_get_localdata(the_task, 0);
-    EventContext * ctxs = pcb->ctxs;
-
-    #define callback_setfd(p) do {                                      \
-        events[n].events  = ctxs[p].events_o;                           \
-        events[n].data.fd = ctxs[p].fd;                                 \
-        ++n;                                                            \
-    } while(0)
-
-    callback_on_setbit(mask, callback_setfd);
-    return n;
-}
-
-int fiber_epoll_unregister_event(FibTCB * the_tcb, int p){
-    EventContextControlBlock * pcb = (EventContextControlBlock *)fiber_get_localdata(the_tcb, 0);
-    int epoll_fd = pcb->epoll_fd;
-    epoll_ctl(                  
-        epoll_fd, EPOLL_CTL_DEL,
-        pcb->ctxs[p].fd, NULL   
-        );     
-    pcb->usedEventMask |= (1ULL << p);                 
-
+    /* set local data */
+    fiber_set_localdata(the_task, EPOLL_TASKDAT_INDEX, (uint64_t)pctx);
     return (0);
 }
 
-int fiber_epoll_wait(
-    struct epoll_event * events, 
-    int maxEvents, 
-    int timeout_in_ms
-){
+int fiber_epoll_unregister_events(int epoll_fd, int fd){
+    /* clear local data */
     FibTCB * the_task = fiber_ident();
-    uint64_t mask = fiber_event_wait(~0ULL, TASK_EVENT_WAIT_ANY, timeout_in_ms * 1000);
-    return fiber_epoll_polling_events(the_task, mask, events);
-}
-
-int fiber_epoll_post(
-    int nEvents,
-    struct epoll_event * events
-    )
-{
-    for (int i = 0; i < nEvents; ++i){
-        EventContext * ctx = (EventContext *)(events[i].data.ptr);
-        ctx->events_o = events[i].events;
-        fiber_event_post(ctx->tcb, (1 << (ctx->index)));
+    EventContext * pctx = (EventContext *)fiber_get_localdata(the_task, EPOLL_TASKDAT_INDEX);
+    if (pctx){
+        free(pctx); 
     }
+    fiber_set_localdata(the_task, EPOLL_TASKDAT_INDEX, 0ULL);
+
+    /* delete from epoll */
+    epoll_ctl(                  
+        epoll_fd, EPOLL_CTL_DEL,
+        fd, NULL   
+        );
     return (0);
 }
 /////////////////////////////////////////////////////////////////////////

@@ -68,9 +68,21 @@ static const char reply[] =
     "</html>"
 ;
 
-ssize_t fdread(int fd, char * buf, int bufsize){
-    ssize_t rc = read(fd, buf, bufsize);
-    return (rc >= 0) ? (rc) : ((errno == EAGAIN) ? (-1) : (-2));
+ssize_t fiber_read(int fd, char * buf, int bufsize){
+    /* read first */
+    int rc = read(fd, buf, bufsize);
+    if ( (rc > 0) || ((rc < 0) && (errno != EAGAIN)) ){
+        return rc;
+    }
+
+    /* waiting for events */
+    struct epoll_event event;
+    fiber_epoll_wait(&event, 1, FIBER_TIMEOUT_INFINITE);
+    if ((event.events & EPOLLERR) || (event.events & EPOLLHUP) || (!(event.events & EPOLLIN))){
+        return (-1);
+    }
+
+    return read(fd, buf, bufsize);
 }
 
 typedef struct client_params_t {
@@ -89,70 +101,46 @@ void * requestHandler(void* args)
     if (s == -1)
         abort();
 
-    EventContext ctxs[MAXEVENTS] = {0};
-    EventContextControlBlock ctxcb = {
-        .maxEvents     = MAXEVENTS,
-        .usedEventMask = (~0ULL),
-        .epoll_fd      = epollfd,
-        .ctxs          = ctxs
-    };
-    fiber_set_localdata(fiber_ident(), 0, (uint64_t)(&ctxcb));
-    fiber_epoll_register_events(infd, EPOLLIN | EPOLLET);
+    // EventContext ctxs[MAXEVENTS] = {0};
+    // EventContextControlBlock ctxcb = {
+    //     .maxEvents     = MAXEVENTS,
+    //     .usedEventMask = (~0ULL),
+    //     .epoll_fd      = epollfd,
+    //     .ctxs          = ctxs
+    // };
+    // fiber_set_localdata(fiber_ident(), 0, (uint64_t)(&ctxcb));
+    fiber_epoll_register_events(epollfd, infd, EPOLLIN | EPOLLET);
 
-    struct epoll_event events[MAXEVENTS];
     /* The event loop */
     while (true)
     {
-        int n = fiber_epoll_wait(events, MAXEVENTS, FIBER_TIMEOUT_INFINITE);
-        assert(n <= 1);
-
-        if (n == 1) {
-            int i = 0;
-
-            if ((events[i].events & EPOLLERR) ||
-                (events[i].events & EPOLLHUP) ||
-                (!(events[i].events & EPOLLIN))) {
-                /* An error has occured on this fd, or the socket is not
-                 * ready for reading (why were we notified then?) */
-                printf("epoll error. events=%u\n", events[i].events);
-                close(events[i].data.fd);
-                break;
-            }
-            else {
+        {
                 /* We have data on the fd waiting to be read. Read and
                  * display it. We must read whatever data is available
                  * completely, as we are running in edge-triggered mode
                  * and won't get a notification again for the same
                  * data. */
                 char buf[512], * pbuf = buf;
-                ssize_t nread = 0, bufsize = sizeof buf, done = 0, rc; 
-                while (1) {
-                    rc = fdread(events[i].data.fd, pbuf, bufsize);
-                    if (rc == -2){done = 1; break;};
-                    if (rc == -1){done = 0; break;};
-                    if (rc == +0){done = 1; break;};
-
-                    nread += rc; pbuf += rc; bufsize -= rc;
-                    if (bufsize <= 0){
-                        nread = 0; pbuf = buf; bufsize = sizeof buf;
-                    }
-                }
+                int done = 0, rc = fiber_read(infd, pbuf, 512);
+                if (rc < 0){done = 1;};
+                // if (rc == -1){done = 0;};
+                if (rc == +0){done = 1;};
 
                 if (!done){
                     /* Write the reply to connection */
-                    s = write(events[i].data.fd, reply, sizeof(reply));
+                    s = write(infd, reply, sizeof(reply));
                     if (s < 0){done = 1;};
                 }
 
                 if (done){
-                    printf("Closed connection on descriptor %d\n", events[i].data.fd);
+                    printf("Closed connection on descriptor %d\n", infd);
+                    fiber_epoll_unregister_events(epollfd, infd);
                     /* Closing the descriptor will make epoll remove it
                      * from the set of descriptors which are monitored. */
-                    close(events[i].data.fd);
+                    close(infd);
 
                     break;
                 }
-            }
         }
     }
 
@@ -186,15 +174,15 @@ void* server(void* args)
         abort();
     }
 
-    EventContext ctxs[MAXEVENTS] = {0};
-    EventContextControlBlock ctxcb = {
-        .maxEvents     = MAXEVENTS,
-        .usedEventMask = (~0ULL),
-        .epoll_fd      = epollfd,
-        .ctxs          = ctxs
-    };
-    fiber_set_localdata(fiber_ident(), 0, (uint64_t)(&ctxcb));
-    fiber_epoll_register_events(sfd, EPOLLIN | EPOLLET);
+    // EventContext ctxs[MAXEVENTS] = {0};
+    // EventContextControlBlock ctxcb = {
+    //     .maxEvents     = MAXEVENTS,
+    //     .usedEventMask = (~0ULL),
+    //     .epoll_fd      = epollfd,
+    //     .ctxs          = ctxs
+    // };
+    // fiber_set_localdata(fiber_ident(), 0, (uint64_t)(&ctxcb));
+    fiber_epoll_register_events(epollfd, sfd, EPOLLIN | EPOLLET);
 
     client_params_t client_params;
     client_params.epoll_fd = epollfd;
@@ -248,6 +236,7 @@ void* server(void* args)
 
     }
 
+    fiber_epoll_unregister_events(epollfd, sfd);
     close(sfd);
     return EXIT_SUCCESS;
 }

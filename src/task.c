@@ -443,7 +443,10 @@ static void * cpp_taskmain(FibTCB * the_task){
 
     /* switch to thread maintask */
     current_task = the_scheduler;
-    goto_context(&(the_scheduler->regs));
+
+    FibTCB tmp = {0};
+    swap_context(&tmp, &(the_scheduler->regs));
+    // goto_context(&(the_scheduler->regs));
 
     /* never reach here */
     return ((void *)(0));
@@ -499,7 +502,13 @@ FibTCB * fiber_create(
     the_task->regs.reg_r12 = (uint64_t)(the_task);
     the_task->regs.reg_r15 = (uint64_t)(cpp_taskmain);
     the_task->regs.reg_rip = (uint64_t)(asm_taskmain);
-    the_task->regs.reg_rsp = (uint64_t)(stackbase + (stacksize & (~15UL)));
+    // the_task->regs.reg_rsp = (uint64_t)(stackbase + (stacksize & (~15UL)));
+
+    uint64_t * sp = (uint64_t *)(stackbase + (stacksize & (~15UL)));
+    if (stacksize & MASK_SYSTEM_STACK){
+        *(--sp) = the_task->regs.reg_rip;
+    }
+    the_task->regs.reg_rsp = (uint64_t)(sp);
 
     /* usually the first task created of thread is the maintask */
     if (unlikely(the_maintask == NULL)){
@@ -853,10 +862,14 @@ int fiber_event_post(FibTCB * the_task, uint64_t events_in){
         }
 
         FibTCB * the_scheduler = the_maintask;
-        if (the_task->scheduler == the_scheduler){
+        #ifndef __1_N_MODEL__
+        if (the_task->scheduler == the_scheduler)
+        #endif
+        {
             /* insert into current ready list (before scheduler) */
             localReadyQProtectedInsertBefore(the_scheduler, the_task);
         }
+        #ifndef __1_N_MODEL__
         else{
             /* put onto local ready queue */
             #if (ACTIVATE_TASKS_LOCALE_READYLIST)
@@ -880,6 +893,7 @@ int fiber_event_post(FibTCB * the_task, uint64_t events_in){
             localReadyQProtectedInsertBefore(the_task->scheduler, the_task);
             #endif
         }
+        #endif
     }
     else{
         spin_unlock(&(the_task->eventlock));        
@@ -961,10 +975,14 @@ static bool fiber_mutex_unlock_(FibMutex * pmutex){
 
     /* clear the block state */
     the_first->state &= (~STATES_WAITFOR_MUTEX);
-    if (likely(the_first->scheduler == the_task->scheduler)){
+    #ifndef __1_N_MODEL__
+    if (likely(the_first->scheduler == the_task->scheduler))
+    #endif
+    {
         /* put onto ready list */
         localReadyQProtectedInsertBefore(the_first->scheduler, the_first);
     }
+    #ifndef __1_N_MODEL__
     else{
         /* put onto local ready queue */
         #if (ACTIVATE_TASKS_LOCALE_READYLIST)
@@ -988,6 +1006,7 @@ static bool fiber_mutex_unlock_(FibMutex * pmutex){
         localReadyQProtectedInsertBefore(the_first->scheduler, the_first);
         #endif
     }
+    #endif
     return true;
 }
 
@@ -1130,10 +1149,14 @@ bool fiber_sem_post(FibSemaphore * psem){
         fiber_watchdog_remove(the_first);
     }
 
-    if (likely(the_first->scheduler == the_task->scheduler)){
+    #ifndef __1_N_MODEL__
+    if (likely(the_first->scheduler == the_task->scheduler))
+    #endif
+    {
         /* clear the block state */
         localReadyQProtectedInsertBefore(the_task->scheduler, the_first);
     }
+    #ifndef __1_N_MODEL__
     else{
         /* put onto local ready queue */
         #if (ACTIVATE_TASKS_LOCALE_READYLIST)
@@ -1157,6 +1180,7 @@ bool fiber_sem_post(FibSemaphore * psem){
         localReadyQProtectedInsertBefore(the_first->scheduler, the_first);
         #endif
     }
+    #endif
     return true;
 }
 
@@ -1287,10 +1311,14 @@ bool fiber_cond_signal(FibCondition * pcond){
         fiber_watchdog_remove(the_first);
     }
 
-    if (likely(the_first->scheduler == the_task->scheduler)){
+    #ifndef __1_N_MODEL__
+    if (likely(the_first->scheduler == the_task->scheduler))
+    #endif
+    {
         /* clear the block state */
         localReadyQProtectedInsertBefore(the_task->scheduler, the_first);
     }
+    #ifndef __1_N_MODEL__
     else{
         /* put onto local ready queue */
         #if (ACTIVATE_TASKS_LOCALE_READYLIST)
@@ -1314,6 +1342,7 @@ bool fiber_cond_signal(FibCondition * pcond){
         localReadyQProtectedInsertBefore(the_first->scheduler, the_first);
         #endif
     }
+    #endif
     return true;
 }
 
@@ -1361,10 +1390,14 @@ bool fiber_cond_broadcast(FibCondition * pcond){
             fiber_watchdog_remove(the_tcb);
         }
 
-        if (likely(the_tcb->scheduler == the_task->scheduler)){
+        #ifndef __1_N_MODEL__
+        if (likely(the_tcb->scheduler == the_task->scheduler))
+        #endif
+        {
             /* clear the block state */
             localReadyQProtectedInsertBefore(the_task->scheduler, the_tcb);
         }
+        #ifndef __1_N_MODEL__
         else{
             /* put onto local ready queue */
             #if (ACTIVATE_TASKS_LOCALE_READYLIST)
@@ -1388,6 +1421,7 @@ bool fiber_cond_broadcast(FibCondition * pcond){
             localReadyQProtectedInsertBefore(the_tcb->scheduler, the_tcb);
             #endif        
         }
+        #endif
     }
 
     return true;
