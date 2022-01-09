@@ -915,7 +915,7 @@ int fiber_event_post(FibTCB * the_task, uint64_t events_in){
 /////////////////////////////////////////////////////////////////////////
 /* fiber mutex                                                         */
 /////////////////////////////////////////////////////////////////////////
-static int fiber_mutex_init_(FibMutex * pmutex){
+int _fiber_mutex_init(FibMutex * pmutex){
     memset(pmutex, 0, sizeof(FibMutex));
 
     spin_init(&(pmutex->qlock));
@@ -924,7 +924,7 @@ static int fiber_mutex_init_(FibMutex * pmutex){
     return (0);
 };
 
-static bool fiber_mutex_lock_(FibMutex * pmutex){
+bool _fiber_mutex_lock(FibMutex * pmutex){
     FibTCB * the_task = current_task;
     if (pmutex->holder == ((uint64_t)the_task)){
         pmutex->reentries += 1;
@@ -959,7 +959,7 @@ static bool fiber_mutex_lock_(FibMutex * pmutex){
     return true;
 }
 
-static bool fiber_mutex_unlock_(FibMutex * pmutex){
+bool _fiber_mutex_unlock(FibMutex * pmutex){
     FibTCB * the_task = current_task;
     if (pmutex->holder != (uint64_t)(the_task)){
         return false;
@@ -1019,16 +1019,16 @@ static bool fiber_mutex_unlock_(FibMutex * pmutex){
     return true;
 }
 
-static bool fiber_mutex_destroy_(FibMutex * pmtx){
+bool _fiber_mutex_destroy(FibMutex * pmtx){
     spin_destroy(&(pmtx->qlock));
     return true;
 }
 
 #if !defined(__1_N_MODEL__)
-int  fiber_mutex_init   (FibMutex * pmutex) __attribute__((alias("fiber_mutex_init_"  )));
-bool fiber_mutex_lock   (FibMutex * pmutex) __attribute__((alias("fiber_mutex_lock_"  )));
-bool fiber_mutex_unlock (FibMutex * pmutex) __attribute__((alias("fiber_mutex_unlock_")));
-bool fiber_mutex_destroy(FibMutex * pmutex) __attribute__((alias("fiber_mutex_destroy_")));
+int  fiber_mutex_init   (FibMutex * pmutex) __attribute__((alias("_fiber_mutex_init"   )));
+bool fiber_mutex_lock   (FibMutex * pmutex) __attribute__((alias("_fiber_mutex_lock"   )));
+bool fiber_mutex_unlock (FibMutex * pmutex) __attribute__((alias("_fiber_mutex_unlock" )));
+bool fiber_mutex_destroy(FibMutex * pmutex) __attribute__((alias("_fiber_mutex_destroy")));
 #endif 
 /////////////////////////////////////////////////////////////////////////
 
@@ -1359,7 +1359,7 @@ bool fiber_cond_broadcast(FibCondition * pcond){
     FibTCB * the_task = current_task;
 
     /* collect all waiting tasks */
-    fibchain_t localchain;
+    fibchain_t localchain = {0};
     _CHAIN_INIT_EMPTY(&localchain);
 
     FibTCB * the_tcb, * the_nxt;

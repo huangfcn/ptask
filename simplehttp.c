@@ -76,7 +76,7 @@ ssize_t fiber_read(int fd, char * buf, int bufsize){
     }
 
     /* waiting for events */
-    struct epoll_event event;
+    struct epoll_event event = {0};
     fiber_epoll_wait(&event, 1, FIBER_TIMEOUT_INFINITE);
     if ((event.events & EPOLLERR) || (event.events & EPOLLHUP) || (!(event.events & EPOLLIN))){
         return (-1);

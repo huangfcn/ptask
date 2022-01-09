@@ -4,7 +4,7 @@ all: $(LIB) simplehttp generator reader_writer blockq rwlock fiberbq pipe_ring
 AS=gcc
 CC=gcc
 CXX=g++
-CFLAGS= -Iinclude -I. -Wall -march=native -D__1_N_MODEL__
+CFLAGS= -Iinclude -I. -Wall -Wno-unused-variable -march=native -D__1_N_MODEL__
 
 INCFILES=include/task.h      \
          include/chain.h     \

@@ -235,16 +235,21 @@ uint64_t fiber_event_wait(uint64_t events_in, int options, int timeout);
 int      fiber_event_post(FibTCB * the_task, uint64_t events_in);
 
 /* mutex APIs */
+int  _fiber_mutex_init   (FibMutex * pmutex);
+bool _fiber_mutex_lock   (FibMutex * pmutex);
+bool _fiber_mutex_unlock (FibMutex * pmutex);
+bool _fiber_mutex_destroy(FibMutex * pmutex);
+
 #if defined(__1_N_MODEL__)
 #define fiber_mutex_lock(mtx)
 #define fiber_mutex_unlock(mtx)
 #define fiber_mutex_init(mtx)
 #define fiber_mutex_destroy(mtx)
 #else
-int  fiber_mutex_init(FibMutex * pmutex);
-bool fiber_mutex_lock(FibMutex * pmutex);
-bool fiber_mutex_unlock(FibMutex * pmutex);
-bool fiber_mutex_destroy(FibMutex * pmtx);
+int  fiber_mutex_init   (FibMutex * pmutex);
+bool fiber_mutex_lock   (FibMutex * pmutex);
+bool fiber_mutex_unlock (FibMutex * pmutex);
+bool fiber_mutex_destroy(FibMutex * pmutex);
 #endif
 /* sempahore APIs */
 int  fiber_sem_init(FibSemaphore * psem, int initval);

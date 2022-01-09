@@ -42,9 +42,10 @@ static inline int fiber_epoll_wait(
 
     uint64_t mask = fiber_event_wait(EVENT_BITMASK_EPOLL, TASK_EVENT_WAIT_ANY, timeout_in_ms * 1000);
 
-    FibTCB * the_task = fiber_ident();
-    EventContext * pctx = (EventContext *)fiber_get_localdata(the_task, EPOLL_TASKDAT_INDEX);
     if (mask & EVENT_BITMASK_EPOLL){
+        FibTCB       * the_task = fiber_ident();
+        EventContext * pctx     = (EventContext *)fiber_get_localdata(the_task, EPOLL_TASKDAT_INDEX);
+
         events[0].events  = pctx->events;
         events[0].data.fd = pctx->fd;
 
@@ -59,7 +60,6 @@ static inline int fiber_epoll_post(
 )
 {
     for (int i = 0; i < nEvents; ++i){
-        // assert(nEvents == 1);
         EventContext * ctx = (EventContext *)(events[i].data.ptr);
         ctx->events = events[i].events;
         fiber_event_post(ctx->tcb, EVENT_BITMASK_EPOLL);
